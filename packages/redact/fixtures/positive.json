@@ -1,0 +1,716 @@
+[
+  {
+    "text": "Contact: jane.doe@example.com",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "jane.doe@example.com"
+      }
+    ]
+  },
+  {
+    "text": "Signed in as dev+test@sub.company.co.uk",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "dev+test@sub.company.co.uk"
+      }
+    ]
+  },
+  {
+    "text": "From: Ravi Kumar <ravi_kumar88@mail.example.org>",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "ravi_kumar88@mail.example.org"
+      }
+    ]
+  },
+  {
+    "text": "email=o.brien@example.io&ref=1",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "o.brien@example.io"
+      }
+    ]
+  },
+  {
+    "text": "Reply to support@polishot-demo.dev for help",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "support@polishot-demo.dev"
+      }
+    ]
+  },
+  {
+    "text": "MAILTO:FINANCE@EXAMPLE.COM",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "FINANCE@EXAMPLE.COM"
+      }
+    ]
+  },
+  {
+    "text": "user.name-123@my-domain.travel wrote:",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "user.name-123@my-domain.travel"
+      }
+    ]
+  },
+  {
+    "text": "(a@b.co)",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "a@b.co"
+      }
+    ]
+  },
+  {
+    "text": "cc: li.wei@example.cn, tom@example.de",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "li.wei@example.cn"
+      },
+      {
+        "kind": "email",
+        "value": "tom@example.de"
+      }
+    ]
+  },
+  {
+    "text": "Invoice sent to accounts%billing@example.net yesterday",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "accounts%billing@example.net"
+      }
+    ]
+  },
+  {
+    "text": "git config user.email \"maria.garcia@example.es\"",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "maria.garcia@example.es"
+      }
+    ]
+  },
+  {
+    "text": "Assignee  noah.k@example.com  Due Friday",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "noah.k@example.com"
+      }
+    ]
+  },
+  {
+    "text": "Card number: 4482 9080 6838 2418",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "4482 9080 6838 2418"
+      }
+    ]
+  },
+  {
+    "text": "Pay with 4352-1559-2839-7817",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "4352-1559-2839-7817"
+      }
+    ]
+  },
+  {
+    "text": "4930577163344777 exp 09/29",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "4930577163344777"
+      }
+    ]
+  },
+  {
+    "text": "CARD 4854 2083 5312 4 CVV ***",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "4854 2083 5312 4"
+      }
+    ]
+  },
+  {
+    "text": "Billing card ending in full: 5139 2696 8097 4056",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "5139 2696 8097 4056"
+      }
+    ]
+  },
+  {
+    "text": "Card number: 5533001828517501",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "5533001828517501"
+      }
+    ]
+  },
+  {
+    "text": "Pay with 2223 0357 1445 4702",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "2223 0357 1445 4702"
+      }
+    ]
+  },
+  {
+    "text": "3489 936409 03800 exp 09/29",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "3489 936409 03800"
+      }
+    ]
+  },
+  {
+    "text": "CARD 378095456935778 CVV ***",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "378095456935778"
+      }
+    ]
+  },
+  {
+    "text": "Billing card ending in full: 6011 5211 4192 3218",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "6011 5211 4192 3218"
+      }
+    ]
+  },
+  {
+    "text": "Card number: 3530 2182 6022 3558",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "3530 2182 6022 3558"
+      }
+    ]
+  },
+  {
+    "text": "Pay with 3056 393545 7342",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "3056 393545 7342"
+      }
+    ]
+  },
+  {
+    "text": "6222-0077-6405-2761 exp 09/29",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "6222-0077-6405-2761"
+      }
+    ]
+  },
+  {
+    "text": "CARD 4872 4016 1518 4113 619 CVV ***",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "4872 4016 1518 4113 619"
+      }
+    ]
+  },
+  {
+    "text": "Scanned receipt: 4488 4144 4652 6O02",
+    "expect": [
+      {
+        "kind": "card",
+        "value": "4488 4144 4652 6O02"
+      }
+    ]
+  },
+  {
+    "text": "Server 192.168.1.24 is up",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "192.168.1.24"
+      }
+    ]
+  },
+  {
+    "text": "curl http://10.0.0.5:8080/health",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "10.0.0.5"
+      }
+    ]
+  },
+  {
+    "text": "nameserver 8.8.8.8",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "8.8.8.8"
+      }
+    ]
+  },
+  {
+    "text": "Accepted publickey from 203.0.113.77 port 22",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "203.0.113.77"
+      }
+    ]
+  },
+  {
+    "text": "route add 172.16.254.1/24",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "172.16.254.1"
+      }
+    ]
+  },
+  {
+    "text": "Mask [255.255.255.0]",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "255.255.255.0"
+      }
+    ]
+  },
+  {
+    "text": "listening on 0.0.0.0",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "0.0.0.0"
+      }
+    ]
+  },
+  {
+    "text": "X-Forwarded-For: 198.51.100.23, 10.1.2.3",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "198.51.100.23"
+      },
+      {
+        "kind": "ipv4",
+        "value": "10.1.2.3"
+      }
+    ]
+  },
+  {
+    "text": "ping 127.0.0.1 -n 4",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "127.0.0.1"
+      }
+    ]
+  },
+  {
+    "text": "Gateway: 192.0.2.1 (DHCP)",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "192.0.2.1"
+      }
+    ]
+  },
+  {
+    "text": "inet6 2001:db8::1 scope global",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "2001:db8::1"
+      }
+    ]
+  },
+  {
+    "text": "link-local fe80::1ff:fe23:4567:890a%eth0",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "fe80::1ff:fe23:4567:890a%eth0"
+      }
+    ]
+  },
+  {
+    "text": "bound to ::1 only",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "::1"
+      }
+    ]
+  },
+  {
+    "text": "addr 2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+      }
+    ]
+  },
+  {
+    "text": "https://[2001:db8::8a2e:370:7334]:443/",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "2001:db8::8a2e:370:7334"
+      }
+    ]
+  },
+  {
+    "text": "mapped ::ffff:192.0.2.128",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "::ffff:192.0.2.128"
+      }
+    ]
+  },
+  {
+    "text": "DNS 2606:4700:4700::1111",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "2606:4700:4700::1111"
+      }
+    ]
+  },
+  {
+    "text": "multicast ff02::2",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "ff02::2"
+      }
+    ]
+  },
+  {
+    "text": "peer 2001:db8:0:0:1:0:0:1 connected",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "2001:db8:0:0:1:0:0:1"
+      }
+    ]
+  },
+  {
+    "text": "inet6 fd12:3456:789a:1::1/64",
+    "expect": [
+      {
+        "kind": "ipv6",
+        "value": "fd12:3456:789a:1::1"
+      }
+    ]
+  },
+  {
+    "text": "OPENAI_API_KEY=s\u006b-proj-WXhaIckImeWjKNt0XJJembuqWivNiWEKuC710MCcj413bY5k",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "s\u006b-proj-WXhaIckImeWjKNt0XJJembuqWivNiWEKuC710MCcj413bY5k"
+      }
+    ]
+  },
+  {
+    "text": "Authorization header uses s\u006b-ant-api03-zBOX0RomPO2XHazXRwkRTNze8ZY3Y6YPiRSe8JqP",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "s\u006b-ant-api03-zBOX0RomPO2XHazXRwkRTNze8ZY3Y6YPiRSe8JqP"
+      }
+    ]
+  },
+  {
+    "text": "stripe.setKey(\"s\u006b_live_v2vtV9kM3CM6qYgr6nOK0pIJ\")",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "s\u006b_live_v2vtV9kM3CM6qYgr6nOK0pIJ"
+      }
+    ]
+  },
+  {
+    "text": "publishable p\u006b_live_j6MQqBmeNkNPaJCl8fkpgzqB",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "p\u006b_live_j6MQqBmeNkNPaJCl8fkpgzqB"
+      }
+    ]
+  },
+  {
+    "text": "restricted r\u006b_test_2cDdE69YDtswBURZH3uOfNjF",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "r\u006b_test_2cDdE69YDtswBURZH3uOfNjF"
+      }
+    ]
+  },
+  {
+    "text": "token g\u0068p_7zjWZpJ4Xi3YlmCkCs2bjH4hn9oO6NPahCNt",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "g\u0068p_7zjWZpJ4Xi3YlmCkCs2bjH4hn9oO6NPahCNt"
+      }
+    ]
+  },
+  {
+    "text": "oauth g\u0068o_dzZYGDwMQLqLxSGM9B5wCYAUOuyJH4hr92ZE",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "g\u0068o_dzZYGDwMQLqLxSGM9B5wCYAUOuyJH4hr92ZE"
+      }
+    ]
+  },
+  {
+    "text": "GH_TOKEN g\u0069thub_pat_Wi9oI4rPwsQIRSXdfy1GAV_yshscGz8ueSyGTm0GExsVx4BbR0kocBBCTN2JfyrvjXYeRoC80G9UsTEhMb",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "g\u0069thub_pat_Wi9oI4rPwsQIRSXdfy1GAV_yshscGz8ueSyGTm0GExsVx4BbR0kocBBCTN2JfyrvjXYeRoC80G9UsTEhMb"
+      }
+    ]
+  },
+  {
+    "text": "SLACK_BOT x\u006fxb-105194440484-1165770420205-N65wEZi4dXJfKRxuZzmhfZSW",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "x\u006fxb-105194440484-1165770420205-N65wEZi4dXJfKRxuZzmhfZSW"
+      }
+    ]
+  },
+  {
+    "text": "aws_access_key_id A\u004bIAKTE53UQPIFPCIL5O",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "A\u004bIAKTE53UQPIFPCIL5O"
+      }
+    ]
+  },
+  {
+    "text": "key A\u004bIAIOSFODNN7EXAMPLE",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "A\u004bIAIOSFODNN7EXAMPLE"
+      }
+    ]
+  },
+  {
+    "text": "maps key A\u0049zaAVGzzaxRIrv7mfKj36kmPegslNhvnzXQeRe",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "A\u0049zaAVGzzaxRIrv7mfKj36kmPegslNhvnzXQeRe"
+      }
+    ]
+  },
+  {
+    "text": "CI uses g\u006cpat-LyL7FmKbnsvsxtRAD97k",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "g\u006cpat-LyL7FmKbnsvsxtRAD97k"
+      }
+    ]
+  },
+  {
+    "text": "//registry.npmjs.org/:_authToken=n\u0070m_4iu8FzIHd7sqV5paIHNJurMaysqo1GEvrPbH",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "n\u0070m_4iu8FzIHd7sqV5paIHNJurMaysqo1GEvrPbH"
+      }
+    ]
+  },
+  {
+    "text": "SENDGRID S\u0047.Z8WbVLQcO9H0pyUlfnsXPC.Qt94epuj8EWLhu51A9xQXm2uDxuk348k2yWqPbaIuNj",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "S\u0047.Z8WbVLQcO9H0pyUlfnsXPC.Qt94epuj8EWLhu51A9xQXm2uDxuk348k2yWqPbaIuNj"
+      }
+    ]
+  },
+  {
+    "text": "HF_TOKEN h\u0066_lzyW4ZJZXFPL145aS430aX8Tdnaz9wvRHT",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "h\u0066_lzyW4ZJZXFPL145aS430aX8Tdnaz9wvRHT"
+      }
+    ]
+  },
+  {
+    "text": "shopify s\u0068pat_8572c8b1b3d0fce016eb0048fba068ce",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "s\u0068pat_8572c8b1b3d0fce016eb0048fba068ce"
+      }
+    ]
+  },
+  {
+    "text": "cookie session=e\u0079JhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e\u0079JzdWIiOiI0MiIsIm5hbWUiOiJBbGV4In0.L3Bu5HTWADpwROdoqZ45uDXXsVV30BYXeiE2fvNXPMY",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "e\u0079JhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e\u0079JzdWIiOiI0MiIsIm5hbWUiOiJBbGV4In0.L3Bu5HTWADpwROdoqZ45uDXXsVV30BYXeiE2fvNXPMY"
+      }
+    ]
+  },
+  {
+    "text": "-\u002d---BEGIN RSA PRIVATE KEY-----",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "-\u002d---BEGIN RSA PRIVATE KEY-----"
+      }
+    ]
+  },
+  {
+    "text": "-\u002d---BEGIN PRIVATE KEY-----",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "-\u002d---BEGIN PRIVATE KEY-----"
+      }
+    ]
+  },
+  {
+    "text": "api_key = \"N2c5Kw8jczj1I7qZK9dQtoUayfX2\"",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "N2c5Kw8jczj1I7qZK9dQtoUayfX2"
+      }
+    ]
+  },
+  {
+    "text": "password: Tr0ub4dor&3horse",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "Tr0ub4dor&3horse"
+      }
+    ]
+  },
+  {
+    "text": "client_secret=1slL67VkIQF55pGc0tmcCbHIDQIvQyzQ",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "1slL67VkIQF55pGc0tmcCbHIDQIvQyzQ"
+      }
+    ]
+  },
+  {
+    "text": "Authorization: Bearer hiIyA3Tc7Nl8zulWMcvVmRsp57PlJnw4tylcXl9x",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "hiIyA3Tc7Nl8zulWMcvVmRsp57PlJnw4tylcXl9x"
+      }
+    ]
+  },
+  {
+    "text": "\"access_token\": \"sA2fpP5UidHesHg43CjD6zkm\"",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "sA2fpP5UidHesHg43CjD6zkm"
+      }
+    ]
+  },
+  {
+    "text": "Copied ck1t8SOpczzr8OgQFWdo5rRp to clipboard",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "ck1t8SOpczzr8OgQFWdo5rRp"
+      }
+    ]
+  },
+  {
+    "text": "Copied P1wdhD72jfVURQTqf3xdkMryBCkgRS to clipboard",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "P1wdhD72jfVURQTqf3xdkMryBCkgRS"
+      }
+    ]
+  },
+  {
+    "text": "Copied VbjJljwD0P5tC8jFlHEk8osyd3h7mQtdLwMe to clipboard",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "VbjJljwD0P5tC8jFlHEk8osyd3h7mQtdLwMe"
+      }
+    ]
+  },
+  {
+    "text": "Copied PUMplU22X0WFnDFad6mK1TfIuPuHywaIiujqQENTTyNP to clipboard",
+    "expect": [
+      {
+        "kind": "secret",
+        "value": "PUMplU22X0WFnDFad6mK1TfIuPuHywaIiujqQENTTyNP"
+      }
+    ]
+  },
+  {
+    "text": "deploy@ci.example.com pushed with g\u0068p_UoZ8s1DqO234sN0NSZC6NqXH16dzRtpl3NzJ",
+    "expect": [
+      {
+        "kind": "email",
+        "value": "deploy@ci.example.com"
+      },
+      {
+        "kind": "secret",
+        "value": "g\u0068p_UoZ8s1DqO234sN0NSZC6NqXH16dzRtpl3NzJ"
+      }
+    ]
+  },
+  {
+    "text": "ssh admin@10.20.30.40",
+    "expect": [
+      {
+        "kind": "ipv4",
+        "value": "10.20.30.40"
+      }
+    ]
+  }
+]

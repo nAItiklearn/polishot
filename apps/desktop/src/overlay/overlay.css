@@ -1,0 +1,156 @@
+/* Capture overlay. Always rendered with the dark tokens (set in Overlay.tsx) so chips stay
+   legible over any screenshot content. */
+body.overlay {
+  background: transparent;
+  cursor: none;
+}
+
+.ov-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  cursor: none;
+  touch-action: none;
+  outline: none;
+}
+
+.ov-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+.ov-dim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.42);
+  pointer-events: none;
+}
+
+/* The selection punches a hole in the dim layer via a huge box-shadow. */
+.ov-sel {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 1.5px solid var(--ps-accent);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.5),
+    0 0 0 100vmax rgb(0 0 0 / 0.42);
+}
+
+.ov-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: #fff;
+  mix-blend-mode: difference;
+  pointer-events: none;
+  will-change: transform;
+}
+.ov-line-v {
+  width: 1px;
+  height: 100%;
+}
+.ov-line-h {
+  width: 100%;
+  height: 1px;
+}
+
+.ov-chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--ps-radius-sm);
+  background: rgb(12 12 11 / 0.9);
+  color: var(--ps-text);
+  font-size: 12px;
+  line-height: 16px;
+  box-shadow: var(--ps-shadow-1);
+  pointer-events: none;
+}
+
+.ov-loupe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 128px;
+  pointer-events: none;
+  border-radius: var(--ps-radius-md);
+  overflow: hidden;
+  background: var(--ps-surface);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.25),
+    var(--ps-shadow-2);
+}
+.ov-loupe-canvas {
+  display: block;
+  width: 128px;
+  height: 128px;
+}
+.ov-loupe-coords {
+  position: static;
+  display: block;
+  border-radius: 0;
+  background: var(--ps-surface);
+  text-align: center;
+  box-shadow: none;
+}
+
+.ov-hint {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--ps-radius-md);
+  background: rgb(12 12 11 / 0.9);
+  color: var(--ps-text-2);
+  font-size: 12px;
+  line-height: 16px;
+  box-shadow: var(--ps-shadow-2);
+  pointer-events: none;
+  animation: ov-hint-out var(--ps-dur) var(--ps-ease) 4s forwards;
+}
+.ov-hint kbd {
+  font-family: 'Geist Mono', 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--ps-text);
+  background: var(--ps-surface-2);
+  border: 1px solid var(--ps-border);
+}
+
+@keyframes ov-hint-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.ov-error {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 560px;
+  padding: 8px 12px;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface);
+  color: var(--ps-text);
+  border: 1px solid var(--ps-accent);
+  font-size: 13px;
+  box-shadow: var(--ps-shadow-2);
+  pointer-events: none;
+}

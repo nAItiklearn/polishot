@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-qs-incoming-respond"
+description = "Enables the qs_incoming_respond command without any pre-configured scope."
+commands.allow = ["qs_incoming_respond"]
+
+[[permission]]
+identifier = "deny-qs-incoming-respond"
+description = "Denies the qs_incoming_respond command without any pre-configured scope."
+commands.deny = ["qs_incoming_respond"]

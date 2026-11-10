@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-qs-send"
+description = "Enables the qs_send command without any pre-configured scope."
+commands.allow = ["qs_send"]
+
+[[permission]]
+identifier = "deny-qs-send"
+description = "Denies the qs_send command without any pre-configured scope."
+commands.deny = ["qs_send"]

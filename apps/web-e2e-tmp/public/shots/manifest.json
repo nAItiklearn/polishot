@@ -1,0 +1,48 @@
+{
+  "$comment": "Every product shot the site references. tools/shots must produce /shots/<name>.webp at exactly this pixel size from the real app (never stock or mocked images). 'show' is what must be on screen. Until a file exists the site renders a neutral placeholder; rebuild the site after adding files.",
+  "format": "webp",
+  "shots": {
+    "hero-before": {
+      "width": 1200,
+      "height": 900,
+      "alt": "A raw screenshot of an account settings page, with an email address and an API key visible and ragged edges around the window.",
+      "show": "The unprocessed capture of a real settings or dashboard window, straight from region capture: uneven desktop edges still visible, no padding, no shadow, an email address and an API key legible on screen."
+    },
+    "hero-after": {
+      "width": 1600,
+      "height": 1000,
+      "alt": "The same screenshot after Polishot: trimmed, framed on a matching background, with the email address and the API key covered.",
+      "show": "The same capture as hero-before after one pass: edges trimmed, even padding, an auto-matched background sampled from the edges, rounded corners, soft shadow, and the email and API key covered by blur or solid bars. Exported as a 16:10 image."
+    },
+    "balance": {
+      "width": 1600,
+      "height": 1000,
+      "alt": "The Polishot editor with the background set to Auto and the padding slider in view.",
+      "show": "The desktop editor window with a screenshot that has uneven borders being balanced: the Inspector open on Background with 'Auto' selected, the padding control visible, and the framed result on the canvas."
+    },
+    "redact": {
+      "width": 1600,
+      "height": 1000,
+      "alt": "The redaction panel listing an email address, a card number, an IP address and an API key found in a screenshot.",
+      "show": "The editor's redaction panel listing detections as chips (an email, a card number, an IPv4 address, an API key) with their boxes outlined on the screenshot. One chip is toggled off. The 'Blur' and 'Bar' apply buttons are visible."
+    },
+    "ocr": {
+      "width": 1600,
+      "height": 1000,
+      "alt": "A line of text selected inside a screenshot, ready to copy.",
+      "show": "A screenshot of an error dialog or terminal with one line of text selected through the OCR text layer: a selection highlight over the words and a small 'Copied' confirmation visible."
+    },
+    "export": {
+      "width": 1600,
+      "height": 1000,
+      "alt": "The export panel with social size presets and format options.",
+      "show": "The export panel: the preset list (X, LinkedIn, Instagram square, Instagram story, YouTube) with one selected, format PNG, scale 2x, and the 16:9 preview on the canvas."
+    },
+    "quick-send": {
+      "width": 1600,
+      "height": 1000,
+      "alt": "A Windows notification that an image arrived from a phone, next to the phone's send screen.",
+      "show": "A real composite of two captures side by side: the Windows quick-send 'Received from phone' notification with the image preview, and the Android Polishot screen sending that image, both showing the same six-digit pairing code."
+    }
+  }
+}

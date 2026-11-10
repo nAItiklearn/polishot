@@ -1,0 +1,51 @@
+[package]
+name = "polishot-desktop"
+version = "0.1.0"
+description = "Polishot desktop app (Tauri 2)"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "polishot_desktop_lib"
+path = "src/lib.rs"
+# Tests live in polishot-desktop-core: a test executable that links Tauri/WebView2 needs an
+# application manifest (comctl32 v6) to start, so this crate has none of its own.
+test = false
+doctest = false
+
+[[bin]]
+name = "polishot"
+path = "src/main.rs"
+test = false
+
+[features]
+# Set by `tauri build`: serve the embedded frontend instead of the dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.5", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "=2.4.1"
+tauri-plugin-autostart = "=2.7.0"
+tauri-plugin-dialog = "=2.8.4"
+tauri-plugin-single-instance = "=2.5.5"
+window-vibrancy = "=0.8.1"
+polishot-desktop-core = { path = "core" }
+polishot-quicksend = { path = "../../../crates/polishot-quicksend" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+[dependencies.windows]
+version = "=0.62.2"
+features = [
+  "Win32_Foundation",
+  "Win32_System_WinRT",
+  "Win32_UI_Shell",
+  "ApplicationModel_DataTransfer",
+  "Foundation",
+  "Storage",
+  "Storage_Streams",
+]

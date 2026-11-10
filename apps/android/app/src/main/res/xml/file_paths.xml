@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the share/clipboard staging folder is ever exposed through the FileProvider. -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

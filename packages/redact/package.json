@@ -1,0 +1,16 @@
+{
+  "name": "@polishot/redact",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixtures/positive.json": "./fixtures/positive.json",
+    "./fixtures/negative.json": "./fixtures/negative.json"
+  },
+  "scripts": {
+    "gen:fixtures": "node scripts/gen-fixtures.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

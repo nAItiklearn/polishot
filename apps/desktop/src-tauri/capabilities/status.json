@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "status",
+  "description": "Small status windows (status-*): recording pill, recording border, controls and result toast. They can stop a recording, reveal a saved file and close themselves.",
+  "windows": ["status-*"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-recording-stop",
+    "allow-reveal-in-folder",
+    "allow-status-close"
+  ]
+}

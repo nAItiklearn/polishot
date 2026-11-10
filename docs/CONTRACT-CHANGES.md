@@ -1,0 +1,308 @@
+# Contract changes
+
+Append new sections at the bottom; never rewrite another workstream's entry.
+
+## Desktop IPC (apps/desktop), clarifications and additions
+
+Nothing in CONTRACTS section 5 was removed or renamed. Everything below is either a clarification of
+something the contract left open or an additive extension. Reasons are given per item.
+
+### Clarifications
+
+1. **Units and coordinate spaces.** The overlay needs one unambiguous space to avoid off-by-one
+   crops on mixed-DPI and negative-coordinate setups.
+   - `overlay_info().bounds` is the monitor rectangle in **physical pixels, virtual-desktop
+     coordinates** (x/y can be negative for monitors left of or above the primary).
+   - `overlay_info().scale` is device pixels per CSS pixel (1.25 at 125 %).
+   - `WindowInfo.rect` is the window's visible frame (DWM extended frame bounds) in the same
+     physical virtual-desktop space. `overlay_info().windows` is ordered front-most first, so the
+     first hit is the topmost window.
+   - `capture_commit({kind:'region'}).rect` is in **physical pixels relative to that monitor's frame**
+     (0,0 = the monitor's top-left). The Rust side rounds, clamps to the frame and rejects empty or
+     non-finite rectangles.
+   - Monitor indexes are assigned left-to-right, then top-to-bottom, and match the `overlay-<n>`
+     label and `/frame/<n>`.
+2. **Timestamps** (`CaptureMeta.createdAt`, `LicenseStatus.issuedAt`) are Unix epoch **milliseconds**.
+3. **Default shortcuts.** `shortcut` defaults to `Ctrl+Shift+2`. `scrollShortcut` and `gifShortcut`
+   default to `""` (disabled) because those features are not part of this workstream; an empty
+   string is valid for them. When set they are registered and, on press, the Rust side emits
+   `shortcut:extra` (`'scroll' | 'gif'`) to the `preview` window for the owning feature to handle.
+4. **History is automatic.** Every capture, opened file and pasted image gets a history row with its
+   OCR text indexed once recognition finishes. `history_save` only attaches the editor document
+   (`docJson`) to an existing row (creating the row first if persistence has not caught up).
+5. **`capture:ready`** is emitted to the `preview` window for region and window captures only
+   (`open_file` and `paste_clipboard_image` return their `CaptureMeta` to the caller instead).
+   With `afterCapture: 'copy'` the image goes to the clipboard, the preview stays hidden, and
+   `capture:ready` is still emitted.
+6. **Settings validation** (all failures are readable strings): shortcuts must parse, include a
+   modifier and be distinct; `quality` in 0.1 to 1; `saveFolder` absolute with no `..`;
+   `defaultPreset` matches `^[A-Za-z0-9_-]{1,64}$`; `userPresets` is a JSON array under 256 KB.
+   `settings_set` rejects unknown keys. A shortcut another app already owns returns
+   "`<shortcut>` is already in use by another application..." and leaves the old shortcuts active.
+7. **Protocol.** `/frame/<n>` is served as an uncompressed 32-bit BMP (no encode step) and only to
+   `overlay-<n>`; `/capture`, `/history`, `/thumb` only to `preview` and `pin-*`. `/capture/<id>` may be
+   `image/bmp` while the PNG is still being written in the background and `image/png` afterwards
+   (clients should rely on `Content-Type`, not on the URL). Responses carry CORS headers for the app's
+   own origins so images can be drawn to a canvas without tainting it.
+
+### Additive commands
+
+| Command | Used by | Purpose |
+|---|---|---|
+| `overlay_ready({ nonce, decodeMs? })` | overlay | Frame decoded: Rust shows the window (this is what makes "overlay shown" measurable). |
+| `overlay_focus()` | overlay | Take keyboard focus when the pointer moves onto a non-focused monitor. |
+| `overlay_set_mode({ mode })` | overlay | Space toggled window mode; mirrored to every overlay via `overlay:mode`. |
+| `history_get({ id }) -> { meta: CaptureMeta, docJson: string \| null }` | preview | Reopen a history item with its editor document. |
+| `app_info() -> { version, backdrop: 'mica' \| 'solid', warnings: string[] }` | preview | Whether Mica is active (paint a solid background when `solid`) and non-fatal startup problems such as a shortcut conflict. |
+| `pin_close()` | pin-* | A pin window closes itself. |
+
+`OverlayInfo` additionally carries `nonce` and `mode` so an overlay that finishes loading after the
+hotkey can catch up.
+
+### Additive events
+
+`settings:changed` (Settings) after a successful `settings_set`; `capture:error` (string) to `preview`
+when a hotkey capture fails; `overlay:arm` ({ nonce, mode, cursor }) and `overlay:mode` (mode) to
+overlay windows only; `shortcut:extra` as described above.
+
+### Capabilities
+
+The app declares every command in `build.rs`, so Tauri generates `allow-<command>` permissions and
+`capabilities/{overlay,preview,pin}.json` grant each window label only its own set. Overlay windows
+cannot read files, history or the clipboard; pin windows can only drag and close themselves.
+
+### Dependencies not used
+
+`tauri-plugin-clipboard-manager` was evaluated and dropped: the clipboard needs the registered
+`PNG` format plus CF_DIBV5/CF_DIB written together so Slack, Word and browsers all paste correctly,
+which the plugin does not do, so the Win32 clipboard is used directly (`src/clipboard.rs`).
+
+## `@polishot/editor` (packages/editor), clarifications and additions
+
+Nothing in CONTRACTS section 4 was removed or renamed; every signature there is implemented as written.
+Below are the places where the contract left something open, and the strictly additive extensions.
+
+### Clarifications
+
+1. **`<EditorCanvas editor>` and construction.** `new Editor(container, opts)` needs a container at
+   construction, while `<EditorCanvas editor>` receives an existing editor. Resolution: the editor owns a root
+   element (`editor.element`, fills its parent, resizes with a `ResizeObserver`). A React host creates the
+   editor with a detached element, `new Editor(document.createElement('div'), { licensed })`, and
+   `EditorCanvas` moves `editor.element` into its own DOM. Non-React hosts pass a real container.
+2. **Padding semantics.** `padding` is a fraction of `max(framed content w, h)` measured on the displayed
+   content, for auto and fixed-size presets alike. Auto layouts keep scale 1 and snap the padding to whole
+   pixels. Fixed presets scale the framed content to fit and centre it. `radius` is in output pixels.
+3. **`Editor.export` and the licence.** The watermark is drawn unless the editor is licensed AND
+   `opts.licensed !== false`; a caller cannot force it off on an unlicensed editor. The standalone
+   `exportDoc(doc, image, opts)` uses `opts.licensed` directly, and anything other than boolean `true`
+   draws the watermark (fails closed).
+4. **`validateDoc(json)`** accepts an object or JSON text and returns a sanitised copy (unknown keys dropped,
+   soft ranges clamped) or `null`. It rejects wrong types, NaN/Infinity, oversized arrays and nesting,
+   duplicate ids, colours other than `#hex` / `rgb()` / `rgba()`, and `__proto__` / `constructor` /
+   `prototype` keys anywhere. `Editor.load(image, doc)` and `Editor.update()` run it on everything they get;
+   an invalid `doc` is ignored (a fresh balanced document is created) and an invalid `update` is a no-op.
+5. **Image backgrounds** accept only `data:image/(png|jpeg|webp|gif|avif);base64,`, `blob:`, or a URL on an
+   origin the host lists (`EditorOptions.origins`; the page origin is always allowed). SVG, `file:`,
+   `javascript:` and remote hosts are refused in `validateDoc` and again at render time.
+6. **Numbered steps** use the smallest unused positive integer, so deleting step 2 of 1-2-3 makes the next
+   new step 2 again.
+7. **Auto-balance** analyses a copy of the image of at most 1600 px (exact 2x halvings), so a 4K screenshot
+   loads in about 60-120 ms of editor work. The crop is mapped back rounded outward, so content is never cut.
+   A line is trimmed only if every pixel is within OKLab 0.03 of the colour at the outer edge, per-side trim is
+   capped at 30 percent, and trims under 2 px are ignored.
+
+### Additive API (core)
+
+- `computeLayout(doc)` also returns `frame` (the framed object's rectangle) and `pad`.
+- `autoBackground(pixels, region?)` takes an optional crop to sample the edge ring of the content.
+- `Editor`: `element`, `version`, `hasImage`, `licensed`, `style`, `selectedId`, `selected`, `canvasSize`,
+  `layout`, `zoom`, `timings`, `select(id)`, `beginBatch()` / `endBatch()` (one undo step for a slider drag),
+  `removeDetections(dets)`, `isDetectionApplied(det)`, `rebalance()`, `computeAutoBackground()`,
+  `contentRectOnScreen()`, `handleKey(e)`, `setInsets()`, `refreshTheme()`.
+- `Editor.setStyle` also takes `blurMode`, `brushSize` (screen px) and `brushMode`.
+- Event `'view'` (resize, zoom, layout change) next to `'change' | 'select' | 'tool'`.
+- Exports: `validateDoc`, `isSafeImageSrc`, `History`, `planExport`, `computeExportSize`, `deriveGradient`,
+  `dominantEdgeColor`, `mapShortcut`, `maskPreview`, `SWATCHES`, `FRAME_IDS`, `PRESET_ORDER`, and more.
+
+### React UI props (contract left them open)
+
+- `<Inspector editor presets? loadPresets? onSavePreset? onDeletePreset?>`: `loadPresets()` returns the
+  host's saved looks (sync or async); `onSavePreset({ name, settings })` and `onDeletePreset(id)` persist.
+  The UI never touches storage or the network.
+- `<RedactPanel editor words onScan? scanning? kinds?>`: `words` is `null` until the host has run OCR.
+- `<TextLayer editor words onCopyText?>`: the layer takes pointer events only while the select tool has
+  nothing selected. `onCopyText` lets the host use a native clipboard command.
+- `<ExportPanel editor onExport actions? defaults?>`: `onExport({ blob, options, action, filename, width,
+  height })`; `action` is `'save'` or `'copy'` (copy always renders PNG).
+- `<EditorCanvas editor insets?>`: default insets leave 80 px at the bottom for the floating toolbar.
+- Hooks: `useEditorVersion(editor)` and `useEditorShortcuts(editor)` (document-level shortcuts that ignore
+  text fields).
+
+### Dependencies
+
+Exactly as specified. `pnpm install` added `minimumReleaseAgeExclude: [lucide-react@1.71.0]` to
+`pnpm-workspace.yaml` (pnpm did this itself because 1.71.0 is newer than the age gate).
+
+## Desktop license status (apps/desktop), pricing and update window
+
+Implements CONTRACTS section 5b on the desktop side. `LicenseStatus` (returned by `license_status`,
+`license_activate`, `license_deactivate`) gains two optional fields; the existing ones keep their
+meaning:
+
+```ts
+type LicenseStatus = {
+  licensed: boolean;              // = Pro is active (valid key AND this build is inside its update window)
+  edition?: 'personal' | 'team';  // present whenever a genuine key is stored, even if licensed is false
+  keyId?: string;
+  issuedAt?: number;              // Unix epoch milliseconds
+  reason?: 'no-key' | 'invalid' | 'updates-expired';   // set whenever licensed is false
+  updatesUntil?: string;          // ISO date (YYYY-MM-DD) = issuedDays + 365, present with a genuine key
+};
+```
+
+- `BUILD_DAYS` is embedded by `apps/desktop/src-tauri/build.rs` from `SOURCE_DATE_EPOCH` (reproducible
+  builds) or the current time, exposed to code as `POLISHOT_BUILD_DAYS` and parsed at compile time.
+- A genuine key that does not cover this build is still stored (the user did pay): the status is
+  `{ licensed: false, reason: 'updates-expired', updatesUntil, edition, keyId, issuedAt }` and the UI
+  shows "Your license includes updates released until <date>. This version came out later."
+  `license_activate` therefore only fails for keys that do not verify.
+- `reason: 'invalid'` means a stored key no longer verifies (for example after a key rotation).
+- The window maths (`updates_until_days = issuedDays + 365`, `covers_build = build_days <= that`) lives
+  in `apps/desktop/src-tauri/core/src/license.rs` and mirrors the section 5b formulas; it is covered by
+  tests at the window edge (last covered day, one day later, `u32::MAX`). When
+  `polishot-license` exposes `LicenseInfo::updates_until_days()` / `covers_build()` the desktop code
+  should switch to them (two one-line changes) so there is a single implementation.
+- Batch beautify is not part of the desktop backend work (it runs in the editor host), so the Free
+  limit of 5 images per run is not enforced in Rust.
+
+## Android editor bridge (apps/android), additions to CONTRACTS section 6
+
+Nothing in section 6 was removed or renamed; every call listed there works exactly as written. The items
+below are additive. Each one has a reason, and all of them are optional for any other host.
+
+### `window.polishot` (Android to page), additions
+
+| Call | Reason |
+|---|---|
+| `notify({ kind: 'saved' \| 'copied' \| 'shared' \| 'sent' \| 'error', message })` | The bridge methods return nothing, so the page learns the outcome of a save, copy, share or send here and shows the "Copied" / "Saved" toast. `message` is empty for `shared`. |
+| `onBack(): boolean` | Android's back button. Returns `true` when the page used it (it closed the bottom sheet); otherwise the activity finishes. |
+| `batch({ items, lookJson?, licensed, theme, export })` | Batch beautify of several stored captures (share sheet with more than one image): the page renders each with the user's last look and hands every result to `saveImage`. `items` are `{ id, imageUrl, width, height }`; `lookJson` is `{ padding, background, radius, shadow, frame, preset, custom }` (a subset of `EditorDoc`); `export` is `{ format, quality, scale }`. Free runs are limited to 5 images (section 5b); Android trims the list before sending it, and the page enforces the same limit. |
+
+### `window.polishot.load(...)` payload, optional fields
+
+| Field | Reason |
+|---|---|
+| `exportDefaults: { format: 'png' \| 'jpeg' \| 'webp'; quality: number /* 0.4..1 */; scale: 1 \| 2 \| 3 }` | The Settings screen's defaults for the Save, Share and Copy buttons. Missing means PNG, 0.92, 2x. |
+| `defaultPreset: PresetId` | Canvas preset from Settings, applied only to documents the user has not styled yet. Missing means `'auto'`. |
+| `quickSendAvailable: boolean` | Whether the "Send to PC" button is shown. Missing means `false`. |
+
+`licensed` in `load` / `setLicensed` is the **Pro** flag of CONTRACTS section 5b (`entitlement.pro`): a genuine key whose
+update window covers this build.
+
+### `PolishotAndroid` (page to Android), additions
+
+| Method | Reason |
+|---|---|
+| `batchProgress(done: number, total: number, failed: number)` | Progress of `window.polishot.batch`. Android finishes the activity and reports the result when `done >= total`. |
+
+### Behavioural clarifications
+
+- `saveImage`, `shareImage`, `copyImage`, `quickSend` take base64 **without** a `data:` prefix. Size limit: 50 MiB of base64
+  text. The MIME type must be `image/png`, `image/jpeg` or `image/webp` and must match the file signature, or the call is
+  rejected (logged without content, answered with `notify({ kind: 'error' })` only for saves). `copyImage` and `quickSend`
+  carry PNG. File names are reduced to a safe base name and the extension always follows the MIME type.
+- `saveDoc(id, docJson)` is called by the page about 800 ms after the last change and when the page is hidden. Android keeps
+  the JSON as the screenshot's history document; it must be a version 1 `EditorDoc` whose `image.id` equals `id`.
+- Images are served at `https://appassets.androidplatform.net/capture/<id>.png` and are never cached (`Cache-Control: no-store`).
+  The page's CSP has no remote origins; every request to another host is answered with 403 by the WebView client.
+
+## Desktop scrolling capture, GIF recording and quick send (apps/desktop)
+
+Additive only. Existing commands and events keep their shape, except that `capture_commit` may now
+resolve to `null` (see below).
+
+### Scrolling capture and GIF recording
+
+- **Entry points.** Tray items "Capture scrolling" and "Record GIF", the `scrollShortcut` and
+  `gifShortcut` settings (empty = disabled), and `capture_start({ mode })`, whose `mode` now also
+  accepts `'scroll'` and `'gif'` (in addition to `'region'` and `'window'`). The old
+  `shortcut:extra` event from the first desktop entry is gone: those shortcuts now start the flows
+  directly.
+- **Overlay reuse.** Both flows use the normal overlay. `overlay:arm`, `overlay_info()` and the
+  `ipc` type `OverlayInfo` carry `purpose: 'capture' | 'scroll' | 'gif'`. For `scroll` the overlay is
+  window-only (Space is ignored); for `gif` it is region-only (Enter records the whole monitor).
+- **`capture_commit` returns `CaptureMeta | null`.** `null` means the selection started a scroll
+  capture or GIF recording instead of producing a screenshot. Normal captures are unchanged.
+- **Scrolling capture.** Pick a window; a small pill reads "Scrolling, Esc to stop". The window's
+  client area is captured with wheel input (1-notch calibration, then about half a pane per step,
+  retry at half the step once, stop on bottom/full/Esc/90 s/second failure). The result opens in the
+  preview as `capture:ready` with `source: 'scroll'`; a partial result is still delivered, with a
+  toast explaining an early stop. The pointer is moved into the pane for the wheel and restored after.
+- **GIF recording.** Drag a region; a recording frame appears just outside it with a Stop button and
+  timer; 15 fps, 800 px wide, 15 s maximum, streamed through a bounded channel to the encoder (no raw
+  frames are kept). The file is written to the save folder as `Recording YYYY-MM-DD HH.MM.SS.gif`
+  (UTC), a toast offers "Show in folder", and `gif:saved { path, name, bytes }` goes to the preview.
+- **Status windows.** `status-pill`, `status-border`, `status-controls`, `status-toast` are created on
+  demand, excluded from screen capture, and share one capability (`status-*`).
+- **Additive commands.** `recording_stop()` (the Stop button; Esc does the same),
+  `reveal_in_folder({ path })` (only files inside the save folder; used by the toast),
+  `status_close()` (status windows close themselves).
+- **Additive events.** `status:tick { elapsedMs, maxMs }` (to the controls window), `gif:saved`
+  (to the preview), `capture:error` (string, when a hotkey capture cannot start).
+
+### Quick send
+
+Nothing starts until it is used: at launch the listener only comes up if a device is already paired;
+otherwise the first `qs_devices` or `qs_pairing_mode` call starts it. Binding the listener is what
+triggers the Windows Firewall prompt, so the pairing UI should say "Windows may ask to allow network
+access; choose Private networks."
+
+| Command | Arguments | Result |
+|---|---|---|
+| `qs_devices` | none | `DeviceEntry[]` = `{ id, name, paired, online }`. Paired devices first (names from the pair record), then unpaired devices visible on the network. `id` is 16 base32 characters. |
+| `qs_pairing_mode` | `{ open: boolean }` | Opens or closes the window in which other devices may pair with this PC (`allow_pairing`). Call with `true` while the "Pair a phone" dialog is open and `false` when it closes. It also closes itself after 5 minutes. |
+| `qs_pair_start` | `{ deviceId }` | Dial a visible device and start pairing as the initiator. Resolves to `PairCode`. |
+| `qs_pair_confirm` | `{ accepted: boolean }` | The user's answer to "do both screens show this code?". Resolves to the new `DeviceEntry`; rejects with a readable message on mismatch or timeout. Used for both roles. |
+| `qs_send` | raw PNG body, headers `x-device-id`, `x-filename` | Sends the image to a paired device that is currently visible. 50 MB limit, PNG only. |
+| `qs_forget` | `{ deviceId }` | Removes the pair record. |
+| `qs_incoming_respond` | `{ requestId, accept }` | Answer to a `qs:incoming` prompt. Unanswered prompts decline after 55 s. |
+
+`PairCode` = `{ sas: "042 917", peerName, peerId, role: 'initiator' | 'responder' }`.
+
+| Event (to the preview window) | Payload |
+|---|---|
+| `qs:devices` | none. The device list changed (peer appeared or left, pairing finished, device forgotten). Re-run `qs_devices`. |
+| `qs:pair-code` | `PairCode`. Fired for both roles: when this PC started pairing, and when a phone started it while the pairing dialog was open. Show the code, the peer name, and "Do both screens show this code?". Never auto-confirm. |
+| `qs:incoming` | `{ requestId, peerName, name, mime, size }`. A paired device wants to send a file. Show Accept / Decline and answer with `qs_incoming_respond`. |
+| `qs:received` | `{ meta: CaptureMeta, peerName }`. The accepted image was decoded and registered (`source: 'file'`); the preview window is shown. Load `meta` as you would a `capture:ready`. |
+
+Storage: the device identity secret and each pair record live in
+`%APPDATA%\Polishot\quicksend\` (`identity.bin`, `<device id>.pair`), each protected with DPAPI
+(`CryptProtectData`) and an app-specific entropy value. Files that cannot be unlocked are ignored; a
+lost identity is regenerated and the pairs bound to it are dropped.
+
+## Preview window UI (apps/desktop/src/preview, apps/desktop/src/shared), what it expects from the backend
+
+Nothing in CONTRACTS section 5 was changed. The preview UI uses `apps/desktop/src/shared/ipc.ts` (typed client,
+readable errors, swappable transport for the `?mock=1` dev mode). These are the places where it goes slightly
+beyond the contract; each one degrades gracefully when the backend does not (yet) provide it.
+
+1. **Save As.** The dialog plugin returns a path, but `export_save` writes only into the save folder. The client
+   sends an optional header `x-save-path` (percent-encoded UTF-8 absolute path) next to `x-filename`. A backend
+   that honours it should validate it like `saveFolder` (absolute, no `..`, extension and content must match) and
+   return the path it wrote. A backend that ignores it still works: the UI always reports the path returned.
+2. **Show in folder and the pricing link** use the opener plugin commands `plugin:opener|reveal_item_in_dir`
+   (`{ paths: [path] }`) and `plugin:opener|open_url` (`{ url }`, https only). They need `tauri-plugin-opener` and
+   `opener:allow-reveal-item-in-dir` + `opener:allow-open-url` in `capabilities/preview.json`. Without the plugin
+   the UI copies the path or link to the clipboard and says so.
+3. **Window chrome.** The preview draws its own title bar, so `create_preview` should build the window with
+   `.decorations(false)`. Double-clicking the drag region also needs `core:window:allow-internal-toggle-maximize`
+   in `capabilities/preview.json` (Tauri's drag script calls `internal_toggle_maximize`).
+4. **Brand mark (Pro).** The editor exposes `brandMark` / `setBrandMark` (CONTRACTS 5b). `Settings` has no field
+   for it, so the preview remembers it in the webview's `localStorage` under `polishot.brandMark.v1`; the editor
+   validates it and ignores it unless the editor is licensed. It can move into `Settings` later without UI changes.
+5. **First frame.** `show_preview` runs before `capture:ready` is emitted, so for a frame the window can show the
+   previous capture. The UI hides the canvas the moment the event arrives, but the cleanest fix is on the Rust
+   side: emit `capture:ready` first, or show the window only after the preview acknowledges it.
+6. **`LicenseStatus`** in the client carries the optional `reason` and `updatesUntil` fields that the Rust side
+   already returns (see "Desktop license status" above).

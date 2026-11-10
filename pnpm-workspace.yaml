@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+  - "apps/desktop"
+  - "apps/web"
+  - "apps/android/editor-host"
+  - "tools/*"
+allowBuilds:
+  tesseract.js: false
+minimumReleaseAgeExclude:
+  - lucide-react@1.71.0

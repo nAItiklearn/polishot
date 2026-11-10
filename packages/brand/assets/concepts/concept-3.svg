@@ -1,0 +1,5 @@
+<!-- Concept 3 "Wipe": one confident cloth stroke sweeps across the frame; below the curve the shot is already polished. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="9" y="11" width="46" height="42" rx="9" fill="none" stroke="#161615" stroke-width="6"/>
+  <path d="M17 45C27 42 36 33 47 19V41a4 4 0 0 1-4 4Z" fill="#C8471D"/>
+</svg>

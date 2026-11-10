@@ -1,0 +1,14 @@
+[package]
+name = "polishot-media"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+description = "Scrolling-capture stitching and short screen-to-GIF encoding for Polishot (pure Rust, RGBA frames in, RGBA/GIF out)"
+publish = false
+
+[dependencies]
+# Both are permissive (MIT / MIT-or-Apache-2.0). gifski (AGPL) is deliberately not used.
+# `gif` default features pull in color_quant 1.1; we disable them and use color_quant 2.0.0
+# directly so only one NeuQuant implementation ends up in the build.
+gif = { version = "=0.14.2", default-features = false, features = ["std", "raii_no_panic"] }
+color_quant = "=2.0.0"

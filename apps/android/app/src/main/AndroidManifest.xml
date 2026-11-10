@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Permissions, kept to the least that the features need:
+
+        INTERNET + ACCESS_LOCAL_NETWORK
+            Quick send moves a screenshot between this phone and a paired PC over the local network
+            (mDNS discovery plus an encrypted TCP connection, docs/QUICKSEND.md). Polishot never contacts a
+            remote server: the editor WebView is locked to its own asset origin (every other host gets a 403)
+            and cleartext traffic is off. ACCESS_LOCAL_NETWORK is the runtime permission Android 17 requires
+            for apps targeting it to reach devices on the LAN; it is ignored on older releases.
+        CHANGE_WIFI_MULTICAST_STATE
+            A multicast lock held only while browsing for devices, which some Wi-Fi chips need to receive mDNS.
+        SYSTEM_ALERT_WINDOW
+            The floating capture button. Requested only after an explanation screen, and only if the button is on.
+        FOREGROUND_SERVICE + FOREGROUND_SERVICE_MEDIA_PROJECTION
+            The capture session service, which holds the user's screen-capture consent.
+        POST_NOTIFICATIONS
+            The ongoing "Polishot is ready" notification (Android 13 and later).
+
+        There is no storage permission: images are saved through MediaStore and read through the photo picker
+        or content URIs the user hands over.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".PolishotApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Polishot"
+        android:usesCleartextTraffic="false">
+
+        <!-- Home: Capture, Open image, history, Settings, License. The only entry point from the launcher. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            The editor (WebView). Not exported: only this app starts it, with a validated capture id.
+            Its own task affinity keeps it from dragging the home screen forward when a capture opens it, so Back
+            returns to the app that was being captured. It handles configuration changes itself because
+            recreating a WebView would reload the page.
+        -->
+        <activity
+            android:name=".editor.EditorActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="app.polishot.editor"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Real target of the share-sheet entry below. Not exported itself; the alias is. -->
+        <activity
+            android:name=".share.ShareReceiverActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Polishot.Translucent" />
+
+        <!-- "Beautify with Polishot" in the system share sheet. One image opens the editor, several run batch. -->
+        <activity-alias
+            android:name=".ShareAlias"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/share_label"
+            android:targetActivity=".share.ShareReceiverActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- "Send to" sheet over the editor: lists paired devices and sends the image. Not exported. -->
+        <activity
+            android:name=".quicksend.SendToDeviceActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.Polishot.Translucent" />
+
+        <!-- Screen-capture session (MediaProjection). Started only by this app. -->
+        <service
+            android:name=".capture.CaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Exports leave the app through copies in cache/shared, never through app-private files. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

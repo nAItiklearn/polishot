@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ocr-recognize"
+description = "Enables the ocr_recognize command without any pre-configured scope."
+commands.allow = ["ocr_recognize"]
+
+[[permission]]
+identifier = "deny-ocr-recognize"
+description = "Denies the ocr_recognize command without any pre-configured scope."
+commands.deny = ["ocr_recognize"]

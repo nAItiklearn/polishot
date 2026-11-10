@@ -1,0 +1,134 @@
+//! Window lifecycle: the hidden `preview` window (Mica with a solid fallback), one hidden
+//! `overlay-<n>` per monitor, and `pin-<id>` windows.
+
+use tauri::{
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
+};
+
+use crate::routes::{overlay_index, overlay_label};
+use crate::state::state;
+use crate::tlog;
+use crate::winutil::{self, MonitorInfo};
+
+pub const PREVIEW: &str = "preview";
+pub const PREVIEW_SIZE: (f64, f64) = (1040.0, 680.0);
+
+pub fn create_preview(app: &AppHandle) -> Result<WebviewWindow, String> {
+    let title = app
+        .config()
+        .product_name
+        .clone()
+        .unwrap_or_else(|| "Preview".to_string());
+    let win = WebviewWindowBuilder::new(app, PREVIEW, WebviewUrl::App("index.html".into()))
+        .title(title)
+        .inner_size(PREVIEW_SIZE.0, PREVIEW_SIZE.1)
+        .min_inner_size(720.0, 480.0)
+        .center()
+        .visible(false)
+        .focused(false)
+        .transparent(true)
+        .build()
+        .map_err(|e| format!("Could not create the preview window: {e}"))?;
+
+    // Mica needs Windows 11; anything else keeps a solid backdrop.
+    let backdrop = match window_vibrancy::apply_mica(&win, None) {
+        Ok(()) => "mica",
+        Err(_) => "solid",
+    };
+    if let Ok(mut b) = state(app).backdrop.lock() {
+        *b = backdrop;
+    }
+    tlog!("preview backdrop: {backdrop}");
+
+    // Closing the preview hides it; the app lives in the tray.
+    let w2 = win.clone();
+    win.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = w2.hide();
+        }
+    });
+    Ok(win)
+}
+
+pub fn show_preview(app: &AppHandle) {
+    let Some(win) = app.get_webview_window(PREVIEW) else {
+        return;
+    };
+    let _ = win.unminimize();
+    let _ = win.show();
+    if let Ok(hwnd) = win.hwnd() {
+        winutil::force_foreground(hwnd);
+    }
+    let _ = win.set_focus();
+}
+
+/// Create one hidden fullscreen overlay per monitor. Existing overlays are closed first.
+pub fn rebuild_overlays(app: &AppHandle, monitors: &[MonitorInfo]) -> Result<(), String> {
+    for (label, win) in app.webview_windows() {
+        if overlay_index(&label).is_some() {
+            let _ = win.destroy();
+        }
+    }
+    for m in monitors {
+        let label = overlay_label(m.index);
+        let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("overlay.html".into()))
+            .title("")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .maximizable(false)
+            .minimizable(false)
+            .visible(false)
+            .focused(false)
+            .build()
+            .map_err(|e| format!("Could not create the capture overlay: {e}"))?;
+        place_overlay(&win, m);
+    }
+    if let Ok(mut layout) = state(app).overlay_layout.lock() {
+        *layout = monitors.iter().map(MonitorInfo::fingerprint).collect();
+    }
+    tlog!("overlays rebuilt for {} monitor(s)", monitors.len());
+    Ok(())
+}
+
+/// Position in physical pixels. Moving between monitors of different DPI can make Windows rescale
+/// the window, so size is applied again after the move.
+fn place_overlay(win: &WebviewWindow, m: &MonitorInfo) {
+    let pos = PhysicalPosition::new(m.bounds.x, m.bounds.y);
+    let size = PhysicalSize::new(m.bounds.w as u32, m.bounds.h as u32);
+    let _ = win.set_size(size);
+    let _ = win.set_position(pos);
+    let _ = win.set_size(size);
+}
+
+/// Rebuild the overlays only when the monitor layout changed since they were created.
+/// Returns true if they were rebuilt.
+pub fn ensure_overlays(app: &AppHandle, monitors: &[MonitorInfo]) -> Result<bool, String> {
+    let wanted: Vec<_> = monitors.iter().map(MonitorInfo::fingerprint).collect();
+    let current = state(app)
+        .overlay_layout
+        .lock()
+        .map(|l| l.clone())
+        .unwrap_or_default();
+    let all_present = monitors
+        .iter()
+        .all(|m| app.get_webview_window(&overlay_label(m.index)).is_some());
+    if current == wanted && all_present {
+        return Ok(false);
+    }
+    rebuild_overlays(app, monitors)?;
+    Ok(true)
+}
+
+pub fn hide_overlays(app: &AppHandle) {
+    for (label, win) in app.webview_windows() {
+        if overlay_index(&label).is_some() {
+            let _ = win.hide();
+        }
+    }
+}

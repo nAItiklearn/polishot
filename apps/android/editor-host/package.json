@@ -1,0 +1,27 @@
+{
+  "name": "@polishot/android-editor-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The editor page that the Android app loads in a WebView (built into apps/android/app/src/main/assets/editor).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@polishot/brand": "workspace:*",
+    "@polishot/editor": "workspace:*",
+    "@polishot/redact": "workspace:*",
+    "lucide-react": "1.71.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "vite": "8.3.7"
+  }
+}

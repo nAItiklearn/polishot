@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- packages/brand palette.light.bg: the window colour before the first frame, so there is no white flash. -->
+    <color name="ps_bg">#FFFAFAF9</color>
+</resources>

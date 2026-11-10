@@ -1,0 +1,294 @@
+{
+  "publicKeyHex": "b5bf7dbca3994fdf5557ae4e437bebd5600e0eda07652cb5f53297086c6bce84",
+  "cases": [
+    {
+      "name": "valid-personal",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "valid": true,
+      "edition": "personal",
+      "issuedDays": 20468,
+      "keyIdHex": "11181f262d343b42",
+      "licenseeHash": "ff8d9819fc0e12bf0d24892e45987e24"
+    },
+    {
+      "name": "valid-team",
+      "key": "PSHOT-041000-2G46GA-FBNNQK-1WNMD9-DRV8JR-VWF7XK-H6VGYT-HFYN2M-0D3DDY-3XJKNW-PSFY2T-SY4H10-G9RFKB-02EH17-XV8RKV-AYBRBR-P8096E-FQS3B7-5712R3-N90SJ0-9G2KMH-T2S37P-SKZAM6-5822D7-XXPNE3-R",
+      "valid": true,
+      "edition": "team",
+      "issuedDays": 20513,
+      "keyIdHex": "a0a7aeb5bcc3cad1",
+      "licenseeHash": "a96e3689637c79fb389b70f6a2ff5454"
+    },
+    {
+      "name": "valid-max-u32-days",
+      "key": "PSHOT-040ZZZ-ZZZX04-EKJNBH-HPMWFZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-MQG7AR-XHC4SY-9AGF29-3Z6MPD-8TX6ET-X95WD9-E4VPHQ-XAYNAY-56Z2HR-7N2B9N-9W5GEX-3BHT14-59MD4G-9PVKPF-9YKAK7-HTAPP2-ZPW0C3-0",
+      "valid": true,
+      "edition": "personal",
+      "issuedDays": 4294967295,
+      "keyIdHex": "40474e555c636a71",
+      "licenseeHash": "ff8d9819fc0e12bf0d24892e45987e24"
+    },
+    {
+      "name": "valid-lowercase-no-group-dashes",
+      "key": "pshot-040g002fyg8hg7s65mt3pgqzhpc1kz0e2azgt9495s2sgzh4yxm83v1b48xjqnn113d662rb0gtf99265b36j8fwprxmdw2fxvse08fdq1hwzw2swvkag5fh7kjddpspxtfjy8jja9e6ym4p1bgep2g",
+      "valid": true,
+      "edition": "personal",
+      "issuedDays": 20468,
+      "keyIdHex": "11181f262d343b42",
+      "licenseeHash": "ff8d9819fc0e12bf0d24892e45987e24"
+    },
+    {
+      "name": "valid-without-prefix",
+      "key": "040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "valid": true,
+      "edition": "personal",
+      "issuedDays": 20468,
+      "keyIdHex": "11181f262d343b42",
+      "licenseeHash": "ff8d9819fc0e12bf0d24892e45987e24"
+    },
+    {
+      "name": "valid-whitespace-separated",
+      "key": "  \tPSHOT-040G00 2FYG8H G7S65M T3PGQZ HPC1KZ 0E2AZG T9495S 2SGZH4 YXM83V 1B48XJ QNN113 D662RB 0GTF99 265B36 J8FWPR XMDW2F XVSE08 FDQ1HW ZW2SWV KAG5FH 7KJDDP SPXTFJ Y8JJA9 E6YM4P 1BGEP2 G\r\n",
+      "valid": true,
+      "edition": "personal",
+      "issuedDays": 20468,
+      "keyIdHex": "11181f262d343b42",
+      "licenseeHash": "ff8d9819fc0e12bf0d24892e45987e24"
+    },
+    {
+      "name": "valid-confusable-O-I-L",
+      "key": "PSHOT-O4oGOo-2FYG8H-G7S65M-T3PGQZ-HPCIKZ-OE2AZG-T9495S-2SGZH4-YXM83V-lB48XJ-QNNLI3-D662RB-oGTF99-265B36-J8FWPR-XMDW2F-XVSEO8-FDQlHW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-LBGEP2-G",
+      "valid": true,
+      "edition": "personal",
+      "issuedDays": 20468,
+      "keyIdHex": "11181f262d343b42",
+      "licenseeHash": "ff8d9819fc0e12bf0d24892e45987e24"
+    },
+    {
+      "name": "flipped-payload-byte",
+      "key": "PSHOT-040G00-2FYG8H-J7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "valid": false,
+      "reason": "signature"
+    },
+    {
+      "name": "flipped-signature-byte",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN117-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "valid": false,
+      "reason": "signature"
+    },
+    {
+      "name": "signed-by-different-key",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-5BBQXM-9X6ZYB-X30QHX-GXMXC7-F07P36-WVNVAZ-AFW448-ZMNN24-PRKYZ1-3KDGBH-BXV0BZ-DJG4CS-V32QA6-2MWY0E-YY6RWY-YF6R3Y-5CDER3-8",
+      "valid": false,
+      "reason": "signature"
+    },
+    {
+      "name": "truncated",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6Y",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "extra-group",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G-ABCDEF",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "prefix-only",
+      "key": "PSHOT-",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "empty-string",
+      "key": "",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "whitespace-only",
+      "key": " \t\r\n",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "too-long-valid-chars",
+      "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "too-long-bad-chars-length-wins",
+      "key": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "valid": false,
+      "reason": "length"
+    },
+    {
+      "name": "garbage-letter-U",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-U3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "valid": false,
+      "reason": "format"
+    },
+    {
+      "name": "garbage-exclamation-mark",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T!495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "valid": false,
+      "reason": "format"
+    },
+    {
+      "name": "garbage-non-ascii",
+      "key": "PSHOT-日本語",
+      "valid": false,
+      "reason": "format"
+    },
+    {
+      "name": "bad-char-beats-length",
+      "key": "PSHOT-ABC!",
+      "valid": false,
+      "reason": "format"
+    },
+    {
+      "name": "version-2-correctly-signed",
+      "key": "PSHOT-080G00-2FYGH2-JC1Q7S-2MRMZZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-5AYQ4M-A5HHRR-BMXCV7-QP9QRP-3JTHX2-82PG68-K6Y5Q9-0F2X2P-EX76VF-49D8FK-C729NC-Q2906D-Y2CJ3H-YMVZTN-WV29T4-SM8MWD-N9VJJ1-0",
+      "valid": false,
+      "reason": "version"
+    },
+    {
+      "name": "edition-3-correctly-signed",
+      "key": "PSHOT-041G00-2FYGSK-MGA89X-B5TS7Z-HPC1KZ-0E2AZG-T9495S-2SGZH4-PPGSZY-6TARED-E3T8WK-HAHEMY-E57HPY-Y7A48P-AK8WAM-W6MJ9W-E630AS-S1J4EC-9ET25P-BM0PPQ-71NG5J-YGMTM1-KKF2G6-HACW96-88WMC2-G",
+      "valid": false,
+      "reason": "version"
+    },
+    {
+      "name": "version-2-signed-by-different-key-signature-wins",
+      "key": "PSHOT-080G00-2FYGH2-JC1Q7S-2MRMZZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-AWEEHV-4QYWQ8-MQ68V6-7CJRC8-0TGHVV-M42ST9-XMSJVH-1S30CE-EZ2FDE-HY5HSJ-ZYBCZN-33J6X3-VW96JB-KPZR8T-R2V9XY-5XDGA4-FKY5G0-0",
+      "valid": false,
+      "reason": "signature"
+    }
+  ],
+  "entitlementCases": [
+    {
+      "name": "personal-build-inside-window",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 20648,
+      "pro": true,
+      "updatesUntilDays": 20833
+    },
+    {
+      "name": "personal-build-on-issue-day",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 20468,
+      "pro": true,
+      "updatesUntilDays": 20833
+    },
+    {
+      "name": "personal-build-before-issue-day",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 20438,
+      "pro": true,
+      "updatesUntilDays": 20833
+    },
+    {
+      "name": "personal-build-on-last-day-inclusive",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 20833,
+      "pro": true,
+      "updatesUntilDays": 20833
+    },
+    {
+      "name": "personal-build-one-day-after",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 20834,
+      "pro": false,
+      "reason": "updates-expired",
+      "updatesUntilDays": 20833
+    },
+    {
+      "name": "personal-build-years-later",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN113-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 21928,
+      "pro": false,
+      "reason": "updates-expired",
+      "updatesUntilDays": 20833
+    },
+    {
+      "name": "team-build-inside-window",
+      "key": "PSHOT-041000-2G46GA-FBNNQK-1WNMD9-DRV8JR-VWF7XK-H6VGYT-HFYN2M-0D3DDY-3XJKNW-PSFY2T-SY4H10-G9RFKB-02EH17-XV8RKV-AYBRBR-P8096E-FQS3B7-5712R3-N90SJ0-9G2KMH-T2S37P-SKZAM6-5822D7-XXPNE3-R",
+      "buildDays": 20713,
+      "pro": true,
+      "updatesUntilDays": 20878
+    },
+    {
+      "name": "team-build-on-last-day-inclusive",
+      "key": "PSHOT-041000-2G46GA-FBNNQK-1WNMD9-DRV8JR-VWF7XK-H6VGYT-HFYN2M-0D3DDY-3XJKNW-PSFY2T-SY4H10-G9RFKB-02EH17-XV8RKV-AYBRBR-P8096E-FQS3B7-5712R3-N90SJ0-9G2KMH-T2S37P-SKZAM6-5822D7-XXPNE3-R",
+      "buildDays": 20878,
+      "pro": true,
+      "updatesUntilDays": 20878
+    },
+    {
+      "name": "team-build-one-day-after",
+      "key": "PSHOT-041000-2G46GA-FBNNQK-1WNMD9-DRV8JR-VWF7XK-H6VGYT-HFYN2M-0D3DDY-3XJKNW-PSFY2T-SY4H10-G9RFKB-02EH17-XV8RKV-AYBRBR-P8096E-FQS3B7-5712R3-N90SJ0-9G2KMH-T2S37P-SKZAM6-5822D7-XXPNE3-R",
+      "buildDays": 20879,
+      "pro": false,
+      "reason": "updates-expired",
+      "updatesUntilDays": 20878
+    },
+    {
+      "name": "max-u32-days-recent-build-saturates",
+      "key": "PSHOT-040ZZZ-ZZZX04-EKJNBH-HPMWFZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-MQG7AR-XHC4SY-9AGF29-3Z6MPD-8TX6ET-X95WD9-E4VPHQ-XAYNAY-56Z2HR-7N2B9N-9W5GEX-3BHT14-59MD4G-9PVKPF-9YKAK7-HTAPP2-ZPW0C3-0",
+      "buildDays": 20568,
+      "pro": true,
+      "updatesUntilDays": 4294967295
+    },
+    {
+      "name": "max-u32-days-last-possible-build",
+      "key": "PSHOT-040ZZZ-ZZZX04-EKJNBH-HPMWFZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-MQG7AR-XHC4SY-9AGF29-3Z6MPD-8TX6ET-X95WD9-E4VPHQ-XAYNAY-56Z2HR-7N2B9N-9W5GEX-3BHT14-59MD4G-9PVKPF-9YKAK7-HTAPP2-ZPW0C3-0",
+      "buildDays": 4294967295,
+      "pro": true,
+      "updatesUntilDays": 4294967295
+    },
+    {
+      "name": "invalid-flipped-signature-byte",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-YXM83V-1B48XJ-QNN117-D662RB-0GTF99-265B36-J8FWPR-XMDW2F-XVSE08-FDQ1HW-ZW2SWV-KAG5FH-7KJDDP-SPXTFJ-Y8JJA9-E6YM4P-1BGEP2-G",
+      "buildDays": 20478,
+      "pro": false,
+      "reason": "invalid"
+    },
+    {
+      "name": "invalid-signed-by-different-key",
+      "key": "PSHOT-040G00-2FYG8H-G7S65M-T3PGQZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-5BBQXM-9X6ZYB-X30QHX-GXMXC7-F07P36-WVNVAZ-AFW448-ZMNN24-PRKYZ1-3KDGBH-BXV0BZ-DJG4CS-V32QA6-2MWY0E-YY6RWY-YF6R3Y-5CDER3-8",
+      "buildDays": 20478,
+      "pro": false,
+      "reason": "invalid"
+    },
+    {
+      "name": "invalid-future-version",
+      "key": "PSHOT-080G00-2FYGH2-JC1Q7S-2MRMZZ-HPC1KZ-0E2AZG-T9495S-2SGZH4-5AYQ4M-A5HHRR-BMXCV7-QP9QRP-3JTHX2-82PG68-K6Y5Q9-0F2X2P-EX76VF-49D8FK-C729NC-Q2906D-Y2CJ3H-YMVZTN-WV29T4-SM8MWD-N9VJJ1-0",
+      "buildDays": 20478,
+      "pro": false,
+      "reason": "invalid"
+    },
+    {
+      "name": "invalid-garbage-text",
+      "key": "this is not a licence key",
+      "buildDays": 20478,
+      "pro": false,
+      "reason": "invalid"
+    },
+    {
+      "name": "no-key-empty-string",
+      "key": "",
+      "buildDays": 20478,
+      "pro": false,
+      "reason": "no-key"
+    },
+    {
+      "name": "no-key-whitespace-only",
+      "key": " \t\r\n",
+      "buildDays": 20478,
+      "pro": false,
+      "reason": "no-key"
+    }
+  ]
+}

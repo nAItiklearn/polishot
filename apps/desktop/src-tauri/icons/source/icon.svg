@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Original mark: a capture frame with an offset inner square. Persimmon on near-black. -->
+  <rect width="1024" height="1024" rx="232" fill="#0F0F0E"/>
+  <rect x="216" y="216" width="592" height="592" rx="128" fill="none" stroke="#C8471D" stroke-width="72"/>
+  <rect x="408" y="408" width="288" height="288" rx="72" fill="#C8471D"/>
+</svg>

@@ -1,0 +1,25 @@
+[package]
+name = "polishot-quicksend"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Polishot quick send: paired, end-to-end encrypted local-network image transfer (protocol in docs/QUICKSEND.md)"
+publish = false
+
+[features]
+default = ["discovery"]
+# mDNS advertise/browse. The protocol core has no network-discovery dependency without it.
+discovery = ["dep:mdns-sd"]
+
+[dependencies]
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdh", "std"] }
+hkdf = "=0.13.0"
+hmac = "=0.13.0"
+sha2 = "=0.11.1"
+aes-gcm = { version = "=0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+subtle = "=2.6.1"
+zeroize = "=1.9.1"
+mdns-sd = { version = "=0.21.7", optional = true, default-features = false }
+
+[dev-dependencies]
+serde_json = "=1.0.154"

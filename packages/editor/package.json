@@ -1,0 +1,36 @@
+{
+  "name": "@polishot/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react/index.ts",
+    "./editor.css": "./src/react/editor.css"
+  },
+  "scripts": {
+    "dev": "vite playground",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@polishot/brand": "workspace:*",
+    "@polishot/redact": "workspace:*",
+    "konva": "10.9.1",
+    "lucide-react": "1.71.0"
+  },
+  "peerDependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "8.3.7"
+  }
+}

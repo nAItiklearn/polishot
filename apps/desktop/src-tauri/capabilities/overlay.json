@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "Capture overlay windows (overlay-<n>): receive arm/mode events, report selection, nothing else.",
+  "windows": ["overlay-*"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-overlay-info",
+    "allow-overlay-ready",
+    "allow-overlay-focus",
+    "allow-overlay-set-mode",
+    "allow-capture-commit",
+    "allow-capture-cancel"
+  ]
+}

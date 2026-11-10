@@ -1,0 +1,73 @@
+/* Polishot design tokens. Mirrors src/index.ts `palette`. */
+:root,
+[data-theme='light'] {
+  --ps-bg: #fafaf9;
+  --ps-surface: #ffffff;
+  --ps-surface-2: #f3f3f1;
+  --ps-border: #e6e5e1;
+  --ps-text: #161615;
+  --ps-text-2: #57564f;
+  --ps-text-3: #6b6a63;
+  --ps-accent: #c8471d;
+  --ps-accent-text: #b03c15;
+  --ps-accent-fg: #ffffff;
+  --ps-focus: #c8471d;
+  --ps-shadow-1: 0 1px 2px rgb(22 22 21 / 0.06), 0 1px 1px rgb(22 22 21 / 0.04);
+  --ps-shadow-2: 0 12px 32px -12px rgb(22 22 21 / 0.18), 0 2px 6px rgb(22 22 21 / 0.06);
+  --ps-radius-sm: 6px;
+  --ps-radius-md: 10px;
+  --ps-radius-lg: 14px;
+  --ps-ease: cubic-bezier(0.2, 0, 0, 1);
+  --ps-dur: 180ms;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --ps-bg: #0c0c0b;
+  --ps-surface: #151514;
+  --ps-surface-2: #1d1d1b;
+  --ps-border: #2b2b28;
+  --ps-text: #edece8;
+  --ps-text-2: #a6a59f;
+  --ps-text-3: #8c8b85;
+  --ps-accent: #ee7444;
+  --ps-accent-text: #f28d63;
+  --ps-accent-fg: #170a04;
+  --ps-focus: #f28d63;
+  --ps-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --ps-shadow-2: 0 16px 40px -12px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.3);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ps-bg: #0c0c0b;
+    --ps-surface: #151514;
+    --ps-surface-2: #1d1d1b;
+    --ps-border: #2b2b28;
+    --ps-text: #edece8;
+    --ps-text-2: #a6a59f;
+    --ps-text-3: #8c8b85;
+    --ps-accent: #ee7444;
+    --ps-accent-text: #f28d63;
+    --ps-accent-fg: #170a04;
+    --ps-focus: #f28d63;
+    --ps-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --ps-shadow-2: 0 16px 40px -12px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.3);
+    color-scheme: dark;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ps-dur: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

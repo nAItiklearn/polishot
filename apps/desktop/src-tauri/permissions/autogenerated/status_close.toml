@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-status-close"
+description = "Enables the status_close command without any pre-configured scope."
+commands.allow = ["status_close"]
+
+[[permission]]
+identifier = "deny-status-close"
+description = "Denies the status_close command without any pre-configured scope."
+commands.deny = ["status_close"]

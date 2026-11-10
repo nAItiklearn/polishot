@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Window theme only: every visible pixel is drawn by Compose (home) or the WebView (editor), both with the
+        brand palette. Platform themes keep the app free of AppCompat and the Material Components library.
+    -->
+    <style name="Theme.Polishot" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ps_bg</item>
+        <item name="android:colorBackground">@color/ps_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <!-- The editor draws its own colours; the system must not "force dark" a light editor. -->
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+
+    <!-- The share-sheet receiver shows a small progress card over the app that shared the image. -->
+    <style name="Theme.Polishot.Translucent" parent="Theme.Polishot">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

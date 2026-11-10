@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- packages/brand palette.dark.bg -->
+    <color name="ps_bg">#FF0C0C0B</color>
+</resources>

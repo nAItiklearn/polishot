@@ -1,0 +1,314 @@
+[
+  {
+    "text": "Version 1.2.3.4 released today",
+    "expect": []
+  },
+  {
+    "text": "v10.0.19045.3803",
+    "expect": []
+  },
+  {
+    "text": "Build 2024.11.10.1 is ready",
+    "expect": []
+  },
+  {
+    "text": "Windows 11 build 10.0.26300",
+    "expect": []
+  },
+  {
+    "text": "semver 2.0.0-beta.1+exp.sha.5114f85",
+    "expect": []
+  },
+  {
+    "text": "Release 4.12.0 notes",
+    "expect": []
+  },
+  {
+    "text": "icon@2x.png",
+    "expect": []
+  },
+  {
+    "text": "logo@3x.webp and hero@2x.jpg",
+    "expect": []
+  },
+  {
+    "text": "@username mentioned you in #design",
+    "expect": []
+  },
+  {
+    "text": "mail me at user@localhost",
+    "expect": []
+  },
+  {
+    "text": "john at example dot com",
+    "expect": []
+  },
+  {
+    "text": "foo@bar",
+    "expect": []
+  },
+  {
+    "text": "Twitter handle @polishot",
+    "expect": []
+  },
+  {
+    "text": "Order #4111 1111 1111 1112",
+    "expect": []
+  },
+  {
+    "text": "1234 5678 9012 3456",
+    "expect": []
+  },
+  {
+    "text": "0000 0000 0000 0000",
+    "expect": []
+  },
+  {
+    "text": "Call +1 (415) 555-0132",
+    "expect": []
+  },
+  {
+    "text": "Mobile +91 98765 43210",
+    "expect": []
+  },
+  {
+    "text": "ISBN 978-3-16-148410-0",
+    "expect": []
+  },
+  {
+    "text": "Tracking 1Z999AA10123456784",
+    "expect": []
+  },
+  {
+    "text": "Total: 1,234,567.89 USD",
+    "expect": []
+  },
+  {
+    "text": "Account 12345678 sort code 20-00-00",
+    "expect": []
+  },
+  {
+    "text": "Meeting at 12:30:45",
+    "expect": []
+  },
+  {
+    "text": "2026-11-10 14:22:01 INFO started",
+    "expect": []
+  },
+  {
+    "text": "MAC 00:1A:2B:3C:4D:5E",
+    "expect": []
+  },
+  {
+    "text": "std::vector<int> values;",
+    "expect": []
+  },
+  {
+    "text": "Foo::Bar::baz() returned",
+    "expect": []
+  },
+  {
+    "text": "ratio a:b:c",
+    "expect": []
+  },
+  {
+    "text": "IPv6 support is enabled",
+    "expect": []
+  },
+  {
+    "text": "999.1.1.1 is not an address",
+    "expect": []
+  },
+  {
+    "text": "256.256.256.256",
+    "expect": []
+  },
+  {
+    "text": "Path 10.0.0",
+    "expect": []
+  },
+  {
+    "text": "Value 1.2.3",
+    "expect": []
+  },
+  {
+    "text": "commit 9fceb02d0ae598e95dc970b74767f19372d61af8",
+    "expect": []
+  },
+  {
+    "text": "sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "expect": []
+  },
+  {
+    "text": "id 550e8400-e29b-41d4-a716-446655440000",
+    "expect": []
+  },
+  {
+    "text": "getUserProfileSettingsById(userId)",
+    "expect": []
+  },
+  {
+    "text": "class AbstractSingletonProxyFactoryBean",
+    "expect": []
+  },
+  {
+    "text": "MAX_CONNECTIONS_PER_HOST_LIMIT = 20",
+    "expect": []
+  },
+  {
+    "text": "src/components/editor/CanvasStage.tsx",
+    "expect": []
+  },
+  {
+    "text": "C:\\Users\\Lenovo\\Documents\\Screenshots",
+    "expect": []
+  },
+  {
+    "text": "https://polishot.app/features/auto-redact",
+    "expect": []
+  },
+  {
+    "text": "api_key = <your-api-key>",
+    "expect": []
+  },
+  {
+    "text": "password: ********",
+    "expect": []
+  },
+  {
+    "text": "token: ${GITHUB_TOKEN}",
+    "expect": []
+  },
+  {
+    "text": "API_KEY=xxxxxxxxxxxxxxxx",
+    "expect": []
+  },
+  {
+    "text": "secret: changeme",
+    "expect": []
+  },
+  {
+    "text": "my-really-long-component-name-for-tests",
+    "expect": []
+  },
+  {
+    "text": "@tauri-apps/plugin-global-shortcut",
+    "expect": []
+  },
+  {
+    "text": "ghcr.io/owner/image:1.2.3",
+    "expect": []
+  },
+  {
+    "text": "sk- is a prefix",
+    "expect": []
+  },
+  {
+    "text": "g\u0068p_short",
+    "expect": []
+  },
+  {
+    "text": "A\u004bIA alone",
+    "expect": []
+  },
+  {
+    "text": "e\u0079JhbGciOi truncated",
+    "expect": []
+  },
+  {
+    "text": "color #ff5733 and rgba(0,0,0,0.5)",
+    "expect": []
+  },
+  {
+    "text": "Lighthouse score 98/100",
+    "expect": []
+  },
+  {
+    "text": "SSN-like 123-45-6789",
+    "expect": []
+  },
+  {
+    "text": "The quick brown fox jumps over the lazy dog",
+    "expect": []
+  },
+  {
+    "text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit",
+    "expect": []
+  },
+  {
+    "text": "Press Ctrl+Shift+2 to capture a region",
+    "expect": []
+  },
+  {
+    "text": "Export as PNG, JPG or WebP",
+    "expect": []
+  },
+  {
+    "text": "Padding 64px, radius 12px, shadow 40%",
+    "expect": []
+  },
+  {
+    "text": "Your screenshot was copied to the clipboard",
+    "expect": []
+  },
+  {
+    "text": "Drag a region, or press Space for a window",
+    "expect": []
+  },
+  {
+    "text": "Room 4111-1111 on floor 3",
+    "expect": []
+  },
+  {
+    "text": "Invoice INV-2026-000123",
+    "expect": []
+  },
+  {
+    "text": "Coordinates 37.7749, -122.4194",
+    "expect": []
+  },
+  {
+    "text": "Font Instrument Serif 400 italic",
+    "expect": []
+  },
+  {
+    "text": "node_modules/.pnpm/konva@10.9.1/node_modules/konva",
+    "expect": []
+  },
+  {
+    "text": "localhost:3000/editor",
+    "expect": []
+  },
+  {
+    "text": "Quarterly revenue grew 12.5% to 4.2M",
+    "expect": []
+  },
+  {
+    "text": "Step 1 of 3: choose a background",
+    "expect": []
+  },
+  {
+    "text": "Card 4145 9013 3992 0884",
+    "expect": []
+  },
+  {
+    "text": "Card 4781 2804 8459 6629",
+    "expect": []
+  },
+  {
+    "text": "Card 4537 7775 3126 4398",
+    "expect": []
+  },
+  {
+    "text": "Card 4439 6352 2259 3089",
+    "expect": []
+  },
+  {
+    "text": "Card 4174 4609 6245 1897",
+    "expect": []
+  },
+  {
+    "text": "Card 4951 3327 7419 9941",
+    "expect": []
+  }
+]

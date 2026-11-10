@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["apps/desktop/src-tauri", "crates/polishot-license", "crates/polishot-media", "crates/polishot-quicksend"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+opt-level = 3
+strip = true
+panic = "abort"

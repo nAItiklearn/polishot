@@ -1,0 +1,8 @@
+<!-- Concept 1 "Print P": a P whose bowl is a tilted print (the screenshot) laid over the stem, with a dark screen as its counter. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="12" y="16" width="10" height="40" rx="3" fill="#161615"/>
+  <g transform="rotate(-7 32 23)">
+    <rect x="13" y="8" width="38" height="30" rx="7" fill="#C8471D"/>
+    <rect x="22" y="16" width="20" height="14" rx="3" fill="#161615"/>
+  </g>
+</svg>

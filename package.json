@@ -1,0 +1,22 @@
+{
+  "name": "polishot-monorepo",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "pnpm -r --if-present run test",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "dev:web": "pnpm --filter @polishot/web dev",
+    "dev:desktop": "pnpm --filter @polishot/desktop tauri dev",
+    "e2e": "pnpm --filter @polishot/web e2e",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0"
+  }
+}

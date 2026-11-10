@@ -1,0 +1,95 @@
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "packages/license/**"
+      - "packages/brand/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "packages/license/**"
+      - "packages/brand/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # windows-latest ships MSVC; this is the release target (x86_64-pc-windows-msvc).
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend typecheck and tests
+        run: |
+          pnpm --filter @polishot/desktop typecheck
+          pnpm --filter @polishot/desktop test
+
+      # tauri::generate_context! embeds the built frontend, so build it before clippy/test.
+      - name: Build frontend
+        run: pnpm --filter @polishot/desktop build
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: Capture latency (informational, needs a desktop session)
+        continue-on-error: true
+        run: cargo test --release -p polishot-desktop -- --ignored capture_latency --nocapture
+
+      - name: Build installers (NSIS + MSI)
+        run: pnpm --filter @polishot/desktop tauri build --bundles nsis,msi
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-installers | Out-Null
+          $nsis = Get-ChildItem -Path target/release/bundle/nsis -Filter *-setup.exe | Select-Object -First 1
+          $msi = Get-ChildItem -Path target/release/bundle/msi -Filter *.msi | Select-Object -First 1
+          if (-not $nsis -or -not $msi) { throw "Installer bundles were not produced." }
+          Copy-Item $nsis.FullName dist-installers/Polishot-Setup-x64.exe
+          Copy-Item $msi.FullName dist-installers/Polishot-x64.msi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: polishot-windows-x64
+          path: dist-installers/*
+          if-no-files-found: error

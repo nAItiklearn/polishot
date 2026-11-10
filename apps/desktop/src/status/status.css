@@ -1,0 +1,141 @@
+/* Status surfaces (pill, recording border, controls, toast). Dark tokens are forced in main.tsx so
+   they read over any screen content. */
+body.status {
+  background: transparent;
+  overflow: hidden;
+}
+
+.st-pill,
+.st-controls,
+.st-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 0 12px;
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface);
+  color: var(--ps-text);
+  border: 1px solid var(--ps-border);
+  box-shadow: var(--ps-shadow-2);
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.st-pill {
+  justify-content: center;
+  color: var(--ps-text-2);
+}
+
+.st-pill kbd {
+  font-family: 'Geist Mono', 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--ps-text);
+  background: var(--ps-surface-2);
+  border: 1px solid var(--ps-border);
+}
+
+.st-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ps-accent);
+  animation: st-pulse 1.2s var(--ps-ease) infinite;
+}
+.st-dot-rec {
+  background: var(--ps-accent);
+}
+
+@keyframes st-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Recording frame: 2px ring that sits on the very edge of this (click-through) window, which Rust
+   places just outside the recorded region. */
+.st-border {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--ps-accent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.st-controls {
+  justify-content: space-between;
+}
+
+.st-time {
+  font-size: 13px;
+  min-width: 72px;
+}
+
+.st-dim {
+  color: var(--ps-text-3);
+}
+
+.st-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.st-btn {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ps-radius-sm);
+  background: var(--ps-accent);
+  color: var(--ps-accent-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter var(--ps-dur) var(--ps-ease);
+}
+.st-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.st-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.st-btn:focus-visible,
+.st-icon-btn:focus-visible {
+  outline: 2px solid var(--ps-focus);
+  outline-offset: 2px;
+}
+
+.st-icon-btn {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--ps-radius-sm);
+  background: transparent;
+  color: var(--ps-text-2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.st-icon-btn:hover {
+  background: var(--ps-surface-2);
+  color: var(--ps-text);
+}
+
+.st-toast {
+  gap: 12px;
+}
+.st-toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.st-toast-error {
+  border-color: var(--ps-accent);
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    No cleartext HTTP, anywhere. Polishot has no web back end; the only network use is quick send between two of
+    the user's own devices over a raw encrypted socket, which this configuration does not govern.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

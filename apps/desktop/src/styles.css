@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+@import '@polishot/brand/tokens.css';
+
+/* Shared base for every desktop window. Windows that sit on Mica/transparent surfaces keep the
+   document background transparent; `data-backdrop="solid"` (set by the shell when Mica is
+   unavailable) paints the token surface instead. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Geist Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  color: var(--ps-text);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+html[data-backdrop='solid'] body {
+  background: var(--ps-bg);
+}
+
+.mono {
+  font-family: 'Geist Mono', 'Cascadia Mono', Consolas, monospace;
+}

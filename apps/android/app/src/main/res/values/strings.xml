@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Polishot</string>
+    <string name="nav_back">Back</string>
+    <string name="dialog_cancel">Cancel</string>
+
+    <!-- Home -->
+    <string name="home_license">License</string>
+    <string name="home_settings">Settings</string>
+    <string name="home_capture">Capture</string>
+    <string name="home_capture_hint">Tap once, then capture any screen with the floating button.</string>
+    <string name="home_session_active">Ready. Use the floating button or the notification.</string>
+    <string name="home_session_stop">Stop</string>
+    <string name="home_open_image">Open image</string>
+    <string name="home_recent">Recent</string>
+    <string name="home_clear_all">Clear all</string>
+    <string name="home_search_placeholder">Search text in screenshots</string>
+    <string name="home_empty_title">Nothing here yet</string>
+    <string name="home_empty_body">Screenshots you edit stay on this device, and you can search the text inside them.</string>
+    <string name="home_no_results">No screenshot contains that text.</string>
+    <string name="tile_open_description">Open screenshot from %1$s</string>
+    <string name="tile_delete_description">Delete screenshot</string>
+    <string name="dialog_delete_title">Delete this screenshot?</string>
+    <string name="dialog_delete_body">It is removed from this device. Images you already saved or shared are not affected.</string>
+    <string name="dialog_delete_confirm">Delete</string>
+    <string name="dialog_clear_title">Clear all history?</string>
+    <string name="dialog_clear_body">Every saved screenshot and its recognized text is removed from this device. This can\'t be undone.</string>
+    <string name="dialog_clear_confirm">Clear all</string>
+    <string name="open_image_failed">That image couldn\'t be opened.</string>
+
+    <!-- Capture session -->
+    <string name="capture_channel_session">Capture session</string>
+    <string name="capture_channel_ready">Screenshots</string>
+    <string name="capture_failed">Couldn\'t capture the screen. Try again.</string>
+    <string name="capture_bubble_unavailable">The floating button couldn\'t be shown. Use Capture in the notification.</string>
+    <string name="capture_notification_title">Polishot is ready</string>
+    <string name="capture_notification_text">Tap the floating button to capture the screen.</string>
+    <string name="capture_notification_text_no_bubble">Tap Capture to grab the screen.</string>
+    <string name="capture_action_capture">Capture</string>
+    <string name="capture_action_stop">Stop</string>
+    <string name="capture_ready_title">Screenshot ready</string>
+    <string name="capture_ready_text">Tap to edit and share it.</string>
+    <string name="bubble_description">Capture screenshot</string>
+
+    <!-- Overlay permission explanation -->
+    <string name="overlay_header">Floating button</string>
+    <string name="overlay_title">Show the capture button over other apps?</string>
+    <string name="overlay_body">Polishot draws one small button on top of whatever you are looking at. Tap it and the screen is captured, then opened for editing. Android calls this permission Display over other apps.</string>
+    <string name="overlay_promise">The button can\'t read other apps or your screen. It only receives the single frame you ask for, and everything stays on this device.</string>
+    <string name="overlay_allow">Allow in Settings</string>
+    <string name="overlay_use_notification">Capture from the notification instead</string>
+    <string name="overlay_settings_unavailable">Open Settings, then Apps, then Polishot, and allow Display over other apps.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_export">Export</string>
+    <string name="settings_format">Format</string>
+    <string name="settings_quality">Quality</string>
+    <string name="settings_scale">Scale</string>
+    <string name="settings_preset">Default canvas</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_section_capture">Capture</string>
+    <string name="settings_bubble">Floating capture button</string>
+    <string name="settings_bubble_hint">Shows a button over other apps during a capture session. Off uses the notification only.</string>
+
+    <!-- License -->
+    <string name="license_title">License</string>
+    <string name="license_status_pro">Polishot Pro</string>
+    <string name="license_status_free">Free</string>
+    <string name="license_status_expired">This version is newer than your updates</string>
+    <string name="license_free_body">Every feature works. Exports carry a small watermark, you can keep 3 saved looks, and batch runs handle 5 images. A license removes those limits and lets you add your own brand mark.</string>
+    <string name="license_expired_message">Your license includes updates released until %1$s. This version came out later.</string>
+    <string name="license_issued">Issued</string>
+    <string name="license_updates_until">Updates included until</string>
+    <string name="license_edition_personal">Personal license</string>
+    <string name="license_edition_team">Team license</string>
+    <string name="license_key_label">License key</string>
+    <string name="license_key_placeholder">PSHOT-XXXXXX-XXXXXX-XXXXXX</string>
+    <string name="license_activate">Activate</string>
+    <string name="license_on_sale_soon">Licenses go on sale soon.</string>
+    <string name="license_remove">Remove key</string>
+    <string name="license_remove_title">Remove this key?</string>
+    <string name="license_remove_body">This device goes back to the Free plan. You can enter the key again later.</string>
+    <string name="license_remove_confirm">Remove</string>
+    <string name="license_error_format">That doesn\'t look like a Polishot key. Check it for typos.</string>
+    <string name="license_error_length">That key is too short or too long. Paste the whole key.</string>
+    <string name="license_error_signature">That key isn\'t valid. Check it for typos, or contact support.</string>
+    <string name="license_error_version">That key is for a different version of Polishot.</string>
+
+    <!-- Editor -->
+    <string name="editor_renderer_gone">The editor stopped unexpectedly. Open the screenshot again.</string>
+    <string name="editor_open_failed">That screenshot couldn\'t be opened.</string>
+    <string name="editor_saved">Saved to Pictures/Polishot</string>
+    <string name="editor_save_failed">Couldn\'t save the image.</string>
+    <string name="editor_share_failed">Couldn\'t share the image.</string>
+    <string name="editor_copied_image">Image copied</string>
+    <string name="editor_copied_text">Text copied</string>
+    <string name="editor_copy_failed">Couldn\'t copy.</string>
+    <string name="editor_sent">Sent</string>
+    <plurals name="batch_done">
+        <item quantity="one">Saved %d image to Pictures/Polishot.</item>
+        <item quantity="other">Saved %d images to Pictures/Polishot.</item>
+    </plurals>
+
+    <!-- Quick send -->
+    <string name="home_quick_send">Quick send</string>
+    <string name="quicksend_title">Quick send</string>
+    <string name="quicksend_channel">Quick send</string>
+    <string name="quicksend_intro">Send screenshots between this phone and your PC over your own network. Nothing passes through a server, and every transfer is encrypted.</string>
+    <string name="quicksend_visible">Visible to paired devices while this screen is open.</string>
+    <string name="quicksend_starting">Getting ready\u2026</string>
+    <string name="quicksend_permission">Allow access to devices on your network so Polishot can find your PC.</string>
+    <string name="quicksend_permission_action">Allow</string>
+    <string name="quicksend_device_name">This device</string>
+    <string name="quicksend_rename">Save</string>
+    <string name="quicksend_paired">Paired devices</string>
+    <string name="quicksend_no_pairs">No paired devices yet.</string>
+    <string name="quicksend_nearby">Nearby</string>
+    <string name="quicksend_not_nearby">Not nearby</string>
+    <string name="quicksend_remove">Remove</string>
+    <string name="quicksend_remove_title">Remove %1$s?</string>
+    <string name="quicksend_remove_body">You will need to pair again before sending to it.</string>
+    <string name="quicksend_pair_section">Add a device</string>
+    <string name="quicksend_pair_start">Pair a new device</string>
+    <string name="quicksend_pair_help">Open Polishot on your PC, choose Pair a device, then pick this phone. Or pick your PC below if it is listed.</string>
+    <string name="quicksend_nearby_none">Looking for devices on your network\u2026</string>
+    <string name="quicksend_pair_with">Pair</string>
+    <string name="quicksend_pair_done">Done</string>
+    <string name="quicksend_offer_title">Incoming image</string>
+    <string name="quicksend_offer_body">%1$s wants to send %2$s (%3$s).</string>
+    <string name="quicksend_accept">Accept</string>
+    <string name="quicksend_decline">Decline</string>
+    <string name="quicksend_pairing_title">Compare the codes</string>
+    <string name="quicksend_pairing_body">Does %1$s show the same code?</string>
+    <string name="quicksend_pairing_match">They match</string>
+    <string name="quicksend_pairing_mismatch">They don\'t match</string>
+    <string name="quicksend_received">Received from %1$s</string>
+    <string name="quicksend_paired_with">Paired with %1$s</string>
+    <string name="quicksend_sent">Sent to %1$s</string>
+    <string name="quicksend_unknown_device">A paired device</string>
+    <string name="send_title">Send to</string>
+    <string name="send_no_pairs">No paired devices yet. Pair your PC first.</string>
+    <string name="send_pair">Pair a device</string>
+    <string name="send_sending">Sending to %1$s</string>
+    <string name="problem_unreachable">Couldn\'t reach that device. Check that both are on the same Wi-Fi and that Polishot is open on the other one.</string>
+    <string name="problem_declined">The other device declined the image.</string>
+    <string name="problem_unpaired">That device doesn\'t know this phone any more. Pair them again.</string>
+    <string name="problem_busy">That device is busy. Try again in a moment.</string>
+    <string name="problem_timeout">That device took too long to answer. Try again.</string>
+    <string name="problem_too_large">That image is too large to send (the limit is 50 MB).</string>
+    <string name="problem_bad_file">That file type can\'t be sent.</string>
+    <string name="problem_pairing_cancelled">Pairing was cancelled.</string>
+    <string name="problem_pairing_off">Pairing is off on that device. Open its pairing screen and try again.</string>
+    <string name="problem_too_many">Too many pairing attempts. Wait a minute and try again.</string>
+    <string name="problem_connection">The connection dropped. Try again.</string>
+    <string name="problem_failed">Something went wrong. Try again.</string>
+
+    <!-- Share sheet -->
+    <string name="share_label">Beautify with Polishot</string>
+    <string name="share_preparing">Preparing</string>
+    <string name="share_nothing">No image was shared.</string>
+    <string name="share_unreadable">Those images couldn\'t be opened.</string>
+    <string name="share_free_limit">Free processes up to %1$d images at a time, so only the first %1$d of %2$d are used. Pro removes the limit.</string>
+</resources>

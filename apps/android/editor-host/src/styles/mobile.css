@@ -1,0 +1,489 @@
+/*
+ * Mobile layout for the shared editor UI (@polishot/editor/react). Only --ps-* tokens are used for colour.
+ * Rules: the artboard is the hero; chrome is one bottom sheet, one floating toolbar pill and a quiet top bar;
+ * every touch target is at least 48 CSS px (= 48 dp in the Android WebView); one accent element at rest (Copy).
+ */
+
+:root {
+  --eh-target: 48px;
+  --eh-tab-h: 56px;
+  --eh-font: 'Geist Sans', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ps-bg);
+  color: var(--ps-text);
+  font-family: var(--eh-font);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.eh-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ps-bg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The artboard fills everything the sheet does not use. */
+.eh-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--ps-surface-2);
+}
+
+/* No raw-screenshot flash: the canvas stays hidden until the styled scene has been painted. */
+.eh-stage[data-ready='false'] .pe-canvas {
+  visibility: hidden;
+}
+
+.eh-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  background: var(--ps-surface-2);
+  pointer-events: none;
+}
+
+.eh-spacer {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------- top bar and chips */
+
+.eh-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 0;
+  pointer-events: none;
+}
+
+.eh-top > * {
+  pointer-events: auto;
+}
+
+.eh-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: var(--eh-target);
+  height: var(--eh-target);
+  padding: 0;
+  border: 1px solid var(--ps-border);
+  border-radius: 999px;
+  background: var(--ps-surface);
+  color: var(--ps-text);
+  box-shadow: var(--ps-shadow-1);
+  cursor: pointer;
+}
+
+.eh-iconbtn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.eh-iconbtn:disabled {
+  opacity: 0.45;
+}
+
+/* Copy: the single accent-coloured element at rest. */
+.eh-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--eh-target);
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ps-accent);
+  color: var(--ps-accent-fg);
+  font: 600 15px/1 var(--eh-font);
+  box-shadow: var(--ps-shadow-1);
+  cursor: pointer;
+}
+
+.eh-primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.eh-primary:disabled {
+  opacity: 0.5;
+}
+
+.eh-chips {
+  position: absolute;
+  top: 64px;
+  left: 8px;
+  right: 8px;
+  z-index: 7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.eh-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--ps-border);
+  border-radius: 999px;
+  background: var(--ps-surface);
+  color: var(--ps-text);
+  font: 500 14px/1 var(--eh-font);
+  box-shadow: var(--ps-shadow-1);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* 36 px to look at, 48 px to hit. */
+.eh-chip::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+/* A spinner that stays invisible for the first 300 ms, so quick local work never flashes one. */
+.eh-spin {
+  opacity: 0;
+  animation:
+    eh-appear 1ms linear 300ms forwards,
+    eh-rotate 900ms linear infinite;
+}
+
+@keyframes eh-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes eh-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- toast */
+
+.eh-toast-region {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 88px;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.eh-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: var(--eh-target);
+  padding: 0 8px 0 16px;
+  border-radius: 999px;
+  background: var(--ps-text);
+  color: var(--ps-bg);
+  font: 500 14px/1.3 var(--eh-font);
+  box-shadow: var(--ps-shadow-2);
+  pointer-events: auto;
+  animation: eh-toast-in var(--ps-dur) var(--ps-ease);
+}
+
+.eh-toast[data-kind='error'] {
+  padding-right: 16px;
+}
+
+.eh-toast-action {
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: 600 14px/1 var(--eh-font);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+@keyframes eh-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ---------------------------------------------------------------- floating toolbar pill (shared component) */
+
+.eh-root .pe-canvas > .pe-toolbar {
+  bottom: 12px;
+  max-width: calc(100% - 16px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.eh-root .pe-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.eh-root .pe-toolgroup,
+.eh-root .pe-sep {
+  flex: none;
+}
+
+.eh-root .pe-iconbtn {
+  width: var(--eh-target);
+  height: var(--eh-target);
+}
+
+/* No hover on a phone: tooltips and hover styles would only stick after a tap. */
+.eh-root .pe-tip {
+  display: none;
+}
+
+/* The floating "Copy all text" button of TextLayer is replaced by the Copy text chip and the Text tab. */
+.eh-root .pe-textactions {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- bottom sheet */
+
+.eh-sheet {
+  flex: 0 0 auto;
+  background: var(--ps-surface);
+  border-top: 1px solid var(--ps-border);
+  font-family: var(--eh-font);
+}
+
+.eh-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  height: var(--eh-tab-h);
+}
+
+.eh-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ps-text-2);
+  font: 500 12px/1 var(--eh-font);
+  cursor: pointer;
+}
+
+.eh-tab[aria-selected='true'] {
+  color: var(--ps-text);
+}
+
+.eh-tab[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 28px;
+  height: 2px;
+  margin-left: -14px;
+  border-radius: 2px;
+  background: var(--ps-text);
+}
+
+/* The panel keeps the artboard above it at about two thirds of the screen or more; it scrolls inside. */
+.eh-panel {
+  max-height: clamp(200px, 30dvh, 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-bottom: 1px solid var(--ps-border);
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+/* ---------------------------------------------------------------- touch sizing for the shared panels */
+
+.eh-root .pe-inspector,
+.eh-root .pe-redact,
+.eh-root .pe-export {
+  font-size: 15px;
+}
+
+.eh-root .pe-section {
+  padding: 12px 16px;
+}
+
+.eh-root .pe-label {
+  font-size: 13px;
+}
+
+.eh-root .pe-seg {
+  height: 44px;
+  font-size: 14px;
+}
+
+.eh-root .pe-btn {
+  min-height: var(--eh-target);
+  font-size: 15px;
+}
+
+.eh-root .pe-chip {
+  height: 44px;
+  font-size: 13px;
+}
+
+.eh-root .pe-tile {
+  min-height: var(--eh-target);
+}
+
+.eh-root .pe-colors {
+  gap: 12px;
+}
+
+.eh-root .pe-colorchip {
+  position: relative;
+  width: 32px;
+  height: 32px;
+}
+
+.eh-root .pe-colorchip::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.eh-root .pe-color,
+.eh-root .pe-select,
+.eh-root .pe-input {
+  height: var(--eh-target);
+  font-size: 16px; /* 16 px stops Chromium from zooming the page when a field gets focus */
+}
+
+.eh-root .pe-range {
+  height: var(--eh-target);
+}
+
+.eh-root .pe-range::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.eh-root .pe-range::-webkit-slider-thumb {
+  width: 28px;
+  height: 28px;
+  margin-top: -12px;
+}
+
+.eh-root .pe-detrow {
+  min-height: 56px;
+}
+
+.eh-root .pe-look-apply,
+.eh-root .pe-look-del {
+  min-height: 44px;
+}
+
+/* ---------------------------------------------------------------- text and export tabs */
+
+.eh-ocrtext {
+  max-height: 120px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--ps-border);
+  border-radius: var(--ps-radius-md);
+  background: var(--ps-surface-2);
+  color: var(--ps-text);
+  font: 400 14px/1.45 var(--eh-font);
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.eh-textpanel .pe-actions {
+  margin-bottom: 12px;
+}
+
+/* ---------------------------------------------------------------- batch */
+
+.eh-batch {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--ps-bg);
+}
+
+.eh-batch-card {
+  width: min(360px, 100%);
+}
+
+.eh-batch-title {
+  margin: 0 0 16px;
+  font: 600 18px/1.3 var(--eh-font);
+  color: var(--ps-text);
+}
+
+.eh-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--ps-border);
+}
+
+.eh-progress-fill {
+  height: 100%;
+  background: var(--ps-text);
+  transition: width var(--ps-dur) var(--ps-ease);
+}
+
+.eh-batch-hint {
+  margin: 12px 0 0;
+  font: 400 14px/1.4 var(--eh-font);
+  color: var(--ps-text-2);
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .eh-toast,
+  .eh-progress-fill {
+    animation: none;
+    transition: none;
+  }
+
+  .eh-spin {
+    animation: eh-appear 1ms linear 300ms forwards;
+  }
+}
