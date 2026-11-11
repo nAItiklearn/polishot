@@ -106,12 +106,13 @@ test.describe('download', () => {
     await expect(page.locator('#android').getByText('Android 10 (API 29) or later.')).toBeVisible();
   });
 
-  test('says the release is not out while the changelog entry is unreleased', async ({ page }) => {
+  test('says the release is not out while unreleased or not yet hosted', async ({ page }) => {
     const changelog = readFileSync(path.join(__dirname, '..', '..', '..', 'CHANGELOG.md'), 'utf8');
     const first = /^## .*$/m.exec(changelog)?.[0] ?? '';
     await page.goto('/download');
     const note = page.getByText(/is not released yet/);
-    if (/unreleased/i.test(first)) await expect(note).toBeVisible();
+    // The note stays until the changelog entry is dated AND a public download host is configured.
+    if (/unreleased/i.test(first) || !BASE) await expect(note).toBeVisible();
     else await expect(note).toHaveCount(0);
   });
 });
