@@ -21,8 +21,8 @@ mod winmgr;
 // `crate::geometry`, `crate::ids`, ... paths.
 pub(crate) use polishot_core::{
     bmp, clipboard, cropping, export, geometry, gifrec, grab, history, ids, imgio, jobs, layout,
-    license, ocr, paths, pinmath, qsengine, qspeers, qsstore, routes, scroll, settings, store,
-    timing, tlog, winsrc, winutil,
+    license, ocr, opener, paths, pinmath, qsengine, qspeers, qsstore, routes, scroll, session,
+    settings, store, timing, tlog, winsrc, winutil,
 };
 
 use std::sync::atomic::AtomicU64;
@@ -32,9 +32,10 @@ use tauri::{Manager, RunEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 use crate::history::History;
-use crate::jobs::OcrJobs;
+use crate::jobs::{OcrJobs, WorkerPool};
 use crate::license::{CredentialStore, LicenseStatus};
 use crate::paths::Paths;
+use crate::session::SingleFlight;
 use crate::state::{AppState, FrameFormat};
 use crate::store::CaptureStore;
 
@@ -86,6 +87,10 @@ fn build_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         session: Mutex::new(None),
         history,
         ocr: OcrJobs::default(),
+        finalize_pool: WorkerPool::new("finalize", 2, 32, false),
+        ocr_pool: WorkerPool::new("ocr", 2, 32, true),
+        start_flight: SingleFlight::new(),
+        settings_lock: Mutex::new(()),
         license: Mutex::new(LicenseStatus::unlicensed()),
         warnings: Mutex::new(warnings),
         backdrop: Mutex::new("solid"),
@@ -202,12 +207,12 @@ pub fn run() {
         }
     };
 
-    app.run(|_app, event| {
+    app.run(|app, event| match event {
         // The tray keeps the app alive when every window is hidden or closed.
-        if let RunEvent::ExitRequested { api, code, .. } = event {
-            if code.is_none() {
-                api.prevent_exit();
-            }
-        }
+        RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+        // A real exit: take this PC off the network's device list instead of leaving a stale
+        // advertisement until it times out.
+        RunEvent::Exit => quicksend::shutdown(app),
+        _ => {}
     });
 }

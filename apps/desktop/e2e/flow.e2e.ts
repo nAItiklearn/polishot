@@ -62,6 +62,8 @@ test('acceptance flow: capture to copied', async ({ page }) => {
   await swatch.hover();
   await page.waitForTimeout(80);
   const hovering = await probe(page);
+  expect(hovering.previewing, 'hovering a swatch previews it on the canvas').toBe(true);
+  expect(hovering.background, 'a preview never touches the document').toBe(before.background);
   await shot(page, '02-hover-swatch');
   await swatch.click();
   await page.waitForTimeout(80);

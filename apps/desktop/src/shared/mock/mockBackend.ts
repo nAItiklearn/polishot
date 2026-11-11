@@ -14,6 +14,11 @@
  *   warn=1                              start with a shortcut-conflict warning
  *   clip=empty                          make the clipboard hold no image
  *   delay=ms                            delay before the capture arrives
+ *   ocr=none|many                       no recognised text, or eight times as many words
+ *   qs=none|one|two|offline             paired phones: none (default), one Pixel, two phones, one that is out of range
+ *   qsdelay=ms                          how long a send takes (the phone has to accept)
+ *   qsfail=1                            the phone declines every send
+ *   batch=N                             how many files the multi-file chooser returns (default 3)
  *
  * Tests and Playwright can reach in through `window.__polishotMock` (emit events, read what was copied).
  */
@@ -23,6 +28,7 @@ import {
   setUrlResolver,
   type AppInfo,
   type CaptureMeta,
+  type DeviceEntry,
   type HistoryItem,
   type LicenseStatus,
   type Settings,
@@ -41,6 +47,15 @@ interface MockLast {
   windowCalls: string[];
   captureStarts: string[];
   historySaves: Array<{ id: string; bytes: number }>;
+  /** Every path export_save returned, in order (batch runs write several). */
+  savedPaths: string[];
+  sent: Array<{ deviceId: string; filename: string; bytes: number }>;
+  forgotten: string[];
+  incomingAnswers: Array<{ requestId: number; accept: boolean }>;
+  pairingMode: boolean;
+  pairAnswers: boolean[];
+  /** The device and code each qs_pair_confirm named. */
+  pairConfirmArgs: Array<{ peerId: string; sas: string }>;
 }
 
 interface MockApi {
@@ -49,6 +64,18 @@ interface MockApi {
   state: { settings: Settings; license: LicenseStatus };
   /** Emits a fresh capture:ready (and ocr:ready after a short delay), like a hotkey capture. */
   newCapture(): CaptureMeta;
+  /** Quick send helpers: simulate what a phone does. */
+  qs: {
+    /** A phone starts pairing with this PC (the dialog must be open). */
+    pairFromPhone(): void;
+    /** A different device starts pairing while a code is already on screen. */
+    secondPairCode(): void;
+    /** A paired phone offers an image. */
+    incoming(requestId?: number): void;
+    /** An accepted image arrives. */
+    receive(): CaptureMeta;
+    devices(): DeviceEntry[];
+  };
 }
 
 declare global {
@@ -66,7 +93,7 @@ const MOCK_FOLDER = 'C:\\Users\\you\\Pictures\\Polishot';
 function validateShortcut(value: string, what: string, allowEmpty: boolean, others: string[]): string | null {
   const t = value.trim();
   if (!t) return allowEmpty ? null : `${what} cannot be empty.`;
-  if (t.split('+').length < 2) return `${what} needs at least one modifier key (Ctrl, Alt or Shift).`;
+  if (!t.toLowerCase().split('+').some((part) => ['ctrl', 'control', 'commandorcontrol', 'cmdorctrl', 'alt', 'option'].includes(part))) return `${what} needs Ctrl or Alt, for example Ctrl+Shift+2.`;
   if (others.some((o) => o && o.toLowerCase() === t.toLowerCase())) return 'Each action needs its own shortcut.';
   if (t.toLowerCase() === 'ctrl+shift+4') return `${t} is already in use by another application. Choose a different shortcut.`;
   return null;
@@ -143,7 +170,7 @@ function licenseFor(kind: string): LicenseStatus {
 
 export async function installMock(): Promise<void> {
   const q = params();
-  const last: MockLast = { windowCalls: [], captureStarts: [], historySaves: [] };
+  const last: MockLast = { windowCalls: [], captureStarts: [], historySaves: [], savedPaths: [], sent: [], forgotten: [], incomingAnswers: [], pairingMode: false, pairAnswers: [], pairConfirmArgs: [] };
   const listeners = new Map<string, Set<(p: unknown) => void>>();
   const emit = (event: string, payload?: unknown) => listeners.get(event)?.forEach((cb) => cb(payload));
 
@@ -171,11 +198,19 @@ export async function installMock(): Promise<void> {
   const captureUrls = new Map<string, string>();
   const thumbUrls = new Map<string, string>();
   const wordsById = new Map<string, OcrWord[]>();
+  // ocr=none: recognition finds no text (the empty state of the Text and Redact tabs); ocr=many multiplies the words, like a text-heavy screenshot.
+  const ocrMode = q.get('ocr');
+  const mockWords: OcrWord[] =
+    ocrMode === 'none'
+      ? []
+      : ocrMode === 'many'
+        ? Array.from({ length: 8 }, (_, k) => sample.words.map((w) => ({ ...w, box: { ...w.box, y: w.box.y + (k % 2) * 2 } }))).flat()
+        : sample.words;
 
   const newMeta = (source: CaptureMeta['source']): CaptureMeta => {
     const id = `mock${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
     captureUrls.set(id, sampleUrl);
-    wordsById.set(id, sample.words);
+    wordsById.set(id, mockWords);
     return { id, width: sample.width, height: sample.height, createdAt: Date.now(), source };
   };
 
@@ -195,7 +230,7 @@ export async function installMock(): Promise<void> {
       docJson: null,
     });
     captureUrls.set(id, sampleUrl);
-    wordsById.set(id, sample.words);
+    wordsById.set(id, mockWords);
     const tw = 360;
     thumbUrls.set(id, await toBlobUrl(drawThumb(i, tw, Math.round((tw * seed.h) / seed.w))));
   }
@@ -212,9 +247,21 @@ export async function installMock(): Promise<void> {
     thumbUrls.set(meta.id, sampleUrl);
     emit('capture:ready', meta);
     // Recognition finishes a little after the image, as on the real backend.
-    setTimeout(() => emit('ocr:ready', { id: meta.id, words: sample.words }), 380);
+    setTimeout(() => emit('ocr:ready', { id: meta.id, words: mockWords }), 380);
     return meta;
   };
+
+  /* ---- quick send ---- */
+  const PIXEL: DeviceEntry = { id: 'PIXELEIGHT0000AA', name: 'Pixel 8', paired: true, online: true };
+  const GALAXY: DeviceEntry = { id: 'GALAXYSTWENTYFOU', name: 'Galaxy S24', paired: true, online: true };
+  const NEARBY: DeviceEntry = { id: 'MAYASPHONE00000B', name: 'Maya’s Pixel', paired: false, online: true };
+  const qsMode = q.get('qs') ?? 'none';
+  let pairedDevices: DeviceEntry[] = qsMode === 'one' ? [PIXEL] : qsMode === 'two' ? [PIXEL, GALAXY] : qsMode === 'offline' ? [{ ...PIXEL, online: false }] : [];
+  let pendingPair: DeviceEntry | null = null;
+  const pendingSas = '042 917';
+  const OTHER: DeviceEntry = { id: 'OTHERPHONE00000C', name: 'Unknown phone', paired: false, online: true };
+  const qsList = (): DeviceEntry[] => [...pairedDevices, ...(pairedDevices.some((d) => d.id === NEARBY.id) ? [] : [NEARBY])];
+  const pairCodeFor = (dev: DeviceEntry, role: 'initiator' | 'responder') => ({ sas: '042 917', peerName: dev.name, peerId: dev.id, role });
 
   /* ---- commands ---- */
   const handle = async (cmd: string, args: unknown, options?: { headers?: Record<string, string> }): Promise<unknown> => {
@@ -264,6 +311,7 @@ export async function installMock(): Promise<void> {
         const savePath = encoded ? decodeURIComponent(encoded) : undefined;
         const returned = savePath ?? `${settings.saveFolder}\\${filename}`;
         last.saved = { filename, bytes: bytes?.byteLength ?? 0, savePath, returned };
+        last.savedPaths.push(returned);
         return returned;
       }
       case 'copy_image':
@@ -310,13 +358,68 @@ export async function installMock(): Promise<void> {
         return null;
       case 'capture_start':
         last.captureStarts.push(String(a.mode));
-        setTimeout(() => emitCapture('region'), 450);
+        if (a.mode === 'gif') {
+          const name = 'Recording 2026-11-11 09.30.12.gif';
+          setTimeout(() => emit('gif:saved', { path: `${settings.saveFolder}\\${name}`, name, bytes: 2_400_000 }), 450);
+        } else {
+          setTimeout(() => emitCapture(a.mode === 'scroll' ? 'scroll' : 'region'), 450);
+        }
         return null;
       case 'plugin:opener|open_url':
         last.openedUrl = String(a.url);
         return null;
       case 'plugin:opener|reveal_item_in_dir':
         last.revealed = String((a.paths as string[])?.[0] ?? '');
+        return null;
+      case 'reveal_in_folder':
+        last.revealed = String(a.path ?? '');
+        return null;
+      case 'qs_devices':
+        return qsList();
+      case 'qs_pairing_mode':
+        last.pairingMode = a.open === true;
+        return null;
+      case 'qs_pair_start': {
+        const dev = qsList().find((d) => d.id === a.deviceId && !d.paired);
+        if (!dev) throw 'That device is not nearby any more. Open Polishot on it and try again.';
+        pendingPair = dev;
+        const code = pairCodeFor(dev, 'initiator');
+        setTimeout(() => emit('qs:pair-code', code), 0);
+        return code;
+      }
+      case 'qs_pair_confirm': {
+        last.pairAnswers.push(a.accepted === true);
+        last.pairConfirmArgs.push({ peerId: String(a.peerId ?? ''), sas: String(a.sas ?? '') });
+        const dev = pendingPair;
+        // Like the backend: an answer only counts for the pairing it is waiting on, named by device and code.
+        if (dev && (a.peerId !== dev.id || a.sas !== pendingSas)) throw 'That answer is for a different pairing. Start again.';
+        pendingPair = null;
+        if (!dev) throw 'There is no pairing to confirm. Start again.';
+        if (a.accepted !== true) throw 'The codes did not match.';
+        await tick(Number(q.get('confirmdelay') ?? 0));
+        const paired: DeviceEntry = { ...dev, paired: true, online: true };
+        pairedDevices = [...pairedDevices, paired];
+        setTimeout(() => emit('qs:devices'), 0);
+        return paired;
+      }
+      case 'qs_send': {
+        const deviceId = options?.headers?.['x-device-id'] ?? '';
+        const filename = options?.headers?.['x-filename'] ?? 'screenshot.png';
+        const dev = pairedDevices.find((d) => d.id === deviceId);
+        if (!dev) throw 'That device is not paired. Pair it first.';
+        if (!dev.online) throw `${dev.name} is not nearby. Open Polishot on it, on the same Wi-Fi as this PC.`;
+        await tick(Number(q.get('qsdelay') ?? 0));
+        if (q.get('qsfail') === '1') throw `${dev.name} declined the image.`;
+        last.sent.push({ deviceId, filename, bytes: (args as Uint8Array)?.byteLength ?? 0 });
+        return null;
+      }
+      case 'qs_forget':
+        last.forgotten.push(String(a.deviceId));
+        pairedDevices = pairedDevices.filter((d) => d.id !== a.deviceId);
+        setTimeout(() => emit('qs:devices'), 0);
+        return null;
+      case 'qs_incoming_respond':
+        last.incomingAnswers.push({ requestId: Number(a.requestId), accept: a.accept === true });
         return null;
       default:
         throw `command ${cmd} not found`;
@@ -325,7 +428,7 @@ export async function installMock(): Promise<void> {
   const emitless = (m: CaptureMeta): CaptureMeta => {
     history.unshift({ id: m.id, createdAt: m.createdAt, width: m.width, height: m.height, excerpt: '', hasDoc: false, docJson: null });
     thumbUrls.set(m.id, sampleUrl);
-    setTimeout(() => emit('ocr:ready', { id: m.id, words: sample.words }), 380);
+    setTimeout(() => emit('ocr:ready', { id: m.id, words: mockWords }), 380);
     return m;
   };
 
@@ -357,6 +460,8 @@ export async function installMock(): Promise<void> {
     isMaximized: async () => false,
     onResized: async () => () => undefined,
     pickImage: async () => 'C:\\Users\\you\\Pictures\\screenshot.png',
+    pickImages: async () =>
+      Array.from({ length: Math.max(0, Math.min(40, Number(q.get('batch') ?? 3))) }, (_, i) => `C:\\Users\\you\\Pictures\\Screenshots\\shot-${i + 1}.png`),
     pickFolder: async () => 'D:\\Screenshots',
     pickSavePath: async ({ defaultPath }) => defaultPath,
   };
@@ -385,5 +490,20 @@ export async function installMock(): Promise<void> {
       },
     },
     newCapture: () => emitCapture('region'),
+    qs: {
+      pairFromPhone: () => {
+        pendingPair = NEARBY;
+        emit('qs:pair-code', pairCodeFor(NEARBY, 'responder'));
+      },
+      secondPairCode: () => emit('qs:pair-code', { sas: '731 204', peerName: OTHER.name, peerId: OTHER.id, role: 'responder' }),
+      incoming: (requestId = 7) =>
+        emit('qs:incoming', { requestId, peerName: 'Pixel 8', name: 'screenshot.png', mime: 'image/png', size: 1_300_000 }),
+      receive: () => {
+        const meta = emitless(newMeta('file'));
+        emit('qs:received', { meta, peerName: 'Pixel 8' });
+        return meta;
+      },
+      devices: () => qsList(),
+    },
   };
 }

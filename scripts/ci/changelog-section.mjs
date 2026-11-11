@@ -30,7 +30,10 @@ if (start === -1) {
 let end = lines.findIndex((line, i) => i > start && /^##\s/.test(line));
 if (end === -1) end = lines.length;
 
-const body = lines.slice(start + 1, end).join('\n').trim();
+const body = lines
+  .slice(start + 1, end)
+  .join('\n')
+  .trim();
 if (!body) {
   console.error(`The "## ${version}" section in ${file} is empty.`);
   process.exit(1);

@@ -12,6 +12,27 @@ use crate::tlog;
 use crate::winutil::{self, MonitorInfo};
 
 pub const PREVIEW: &str = "preview";
+
+/// Lock a window's webview to the app's own pages: navigation anywhere else is blocked and
+/// `window.open` is refused. Every window the app creates goes through this.
+pub fn harden<'a, R: tauri::Runtime, M: Manager<R>>(
+    builder: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    builder
+        .on_navigation(|url| {
+            let allowed = crate::routes::is_app_origin(
+                url.scheme(),
+                url.host_str(),
+                url.port(),
+                cfg!(debug_assertions),
+            );
+            if !allowed {
+                tlog!("blocked a navigation to a foreign page");
+            }
+            allowed
+        })
+        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+}
 pub const PREVIEW_SIZE: (f64, f64) = (1040.0, 680.0);
 
 pub fn create_preview(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -20,18 +41,22 @@ pub fn create_preview(app: &AppHandle) -> Result<WebviewWindow, String> {
         .product_name
         .clone()
         .unwrap_or_else(|| "Preview".to_string());
-    let win = WebviewWindowBuilder::new(app, PREVIEW, WebviewUrl::App("index.html".into()))
-        .title(title)
-        .inner_size(PREVIEW_SIZE.0, PREVIEW_SIZE.1)
-        .min_inner_size(720.0, 480.0)
-        .center()
-        .visible(false)
-        .focused(false)
-        // The preview draws its own title bar and window controls (CONTRACT-CHANGES, preview UI).
-        .decorations(false)
-        .transparent(true)
-        .build()
-        .map_err(|e| format!("Could not create the preview window: {e}"))?;
+    let win = harden(WebviewWindowBuilder::new(
+        app,
+        PREVIEW,
+        WebviewUrl::App("index.html".into()),
+    ))
+    .title(title)
+    .inner_size(PREVIEW_SIZE.0, PREVIEW_SIZE.1)
+    .min_inner_size(720.0, 480.0)
+    .center()
+    .visible(false)
+    .focused(false)
+    // The preview draws its own title bar and window controls (CONTRACT-CHANGES, preview UI).
+    .decorations(false)
+    .transparent(true)
+    .build()
+    .map_err(|e| format!("Could not create the preview window: {e}"))?;
 
     // Mica needs Windows 11; anything else keeps a solid backdrop.
     let backdrop = match window_vibrancy::apply_mica(&win, None) {
@@ -75,20 +100,24 @@ pub fn rebuild_overlays(app: &AppHandle, monitors: &[MonitorInfo]) -> Result<(),
     }
     for m in monitors {
         let label = overlay_label(m.index);
-        let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("overlay.html".into()))
-            .title("")
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .maximizable(false)
-            .minimizable(false)
-            .visible(false)
-            .focused(false)
-            .build()
-            .map_err(|e| format!("Could not create the capture overlay: {e}"))?;
+        let win = harden(WebviewWindowBuilder::new(
+            app,
+            &label,
+            WebviewUrl::App("overlay.html".into()),
+        ))
+        .title("")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .maximizable(false)
+        .minimizable(false)
+        .visible(false)
+        .focused(false)
+        .build()
+        .map_err(|e| format!("Could not create the capture overlay: {e}"))?;
         place_overlay(&win, m);
     }
     if let Ok(mut layout) = state(app).overlay_layout.lock() {

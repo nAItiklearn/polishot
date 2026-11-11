@@ -48,7 +48,9 @@ pub fn share_file(app: &AppHandle, path: &Path) -> Result<(), String> {
         let _ = tx.send(show(HWND(hwnd_raw as *mut _), stream, title));
     })
     .map_err(|e| e.to_string())?;
-    rx.recv()
+    // The share sheet is shown from the UI thread. If that thread is wedged, give up instead of
+    // holding this worker (and the caller's spinner) forever.
+    rx.recv_timeout(std::time::Duration::from_secs(10))
         .map_err(|_| "The share sheet did not respond.".to_string())?
 }
 

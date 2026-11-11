@@ -6,6 +6,7 @@ use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
 };
+use zeroize::{Zeroize, Zeroizing};
 
 /// Extra secret mixed into the key so other programs running as this user cannot trivially
 /// unprotect our blobs by calling DPAPI without it.
@@ -18,19 +19,19 @@ fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
     }
 }
 
-/// Copy the system-allocated output blob and free it.
+/// Copy the system-allocated output blob, wipe the system's copy, and free it. The copy is
+/// zeroed when dropped, so decrypted secrets do not linger in freed heap memory.
 ///
 /// # Safety
 /// `out` must have been filled by a successful DPAPI call.
-unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
-    let v = if out.pbData.is_null() {
-        Vec::new()
-    } else {
-        std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec()
-    };
-    if !out.pbData.is_null() {
-        let _ = LocalFree(Some(HLOCAL(out.pbData as *mut std::ffi::c_void)));
+unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Zeroizing<Vec<u8>> {
+    if out.pbData.is_null() {
+        return Zeroizing::new(Vec::new());
     }
+    let len = out.cbData as usize;
+    let v = Zeroizing::new(std::slice::from_raw_parts(out.pbData, len).to_vec());
+    std::slice::from_raw_parts_mut(out.pbData, len).zeroize();
+    let _ = LocalFree(Some(HLOCAL(out.pbData as *mut std::ffi::c_void)));
     v
 }
 
@@ -52,12 +53,13 @@ pub fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
             &mut out,
         )
         .map_err(|_| "Could not protect the data with Windows.".to_string())?;
-        Ok(take(out))
+        // The ciphertext is not secret; hand back a plain Vec.
+        Ok(take(out).to_vec())
     }
 }
 
 /// Decrypt a blob produced by [`protect`] for this user. Tampered or foreign data fails.
-pub fn unprotect(sealed: &[u8]) -> Result<Vec<u8>, String> {
+pub fn unprotect(sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>, String> {
     if sealed.is_empty() {
         return Err("Nothing to unprotect.".to_string());
     }
@@ -91,14 +93,14 @@ mod tests {
         assert_ne!(&sealed[..], &secret[..]);
         assert!(sealed.len() > secret.len());
         assert!(!sealed.windows(secret.len()).any(|w| w == secret));
-        assert_eq!(unprotect(&sealed).unwrap(), secret);
+        assert_eq!(&unprotect(&sealed).unwrap()[..], &secret[..]);
     }
 
     #[test]
     fn empty_and_large_payloads() {
-        assert_eq!(unprotect(&protect(b"").unwrap()).unwrap(), b"");
+        assert_eq!(&unprotect(&protect(b"").unwrap()).unwrap()[..], b"");
         let big = vec![7u8; 100_000];
-        assert_eq!(unprotect(&protect(&big).unwrap()).unwrap(), big);
+        assert_eq!(&unprotect(&protect(&big).unwrap()).unwrap()[..], &big[..]);
     }
 
     #[test]

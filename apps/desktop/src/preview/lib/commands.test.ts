@@ -38,6 +38,11 @@ describe('the action catalogue', () => {
     expect(actionDef('palette').shortcut).toBe('Ctrl+K');
     expect(actionDef('go-history').shortcut).toBe('Ctrl+H');
     expect(actionDef('hide').shortcut).toBe('Esc');
+    expect(actionDef('send-phone').shortcut).toBe('Ctrl+Shift+D');
+    expect(actionDef('pair-phone').shortcut).toBe('Ctrl+Shift+P');
+    expect(actionDef('batch').shortcut).toBe('Ctrl+Shift+O');
+    expect(actionDef('capture-scroll').shortcut).toBe('Ctrl+Shift+L');
+    expect(actionDef('capture-gif').shortcut).toBe('Ctrl+Shift+G');
   });
 
   it('adds one action per editor tool, with the editor own letter', () => {
@@ -76,6 +81,14 @@ describe('filterActions (the command palette search)', () => {
     expect(ids(filterActions(items(), 'watermark'))).toEqual(['go-license']);
     expect(ids(filterActions(items(), 'privacy'))[0]).toBe('redact-blur');
     expect(ids(filterActions(items(), 'cpyim'))).toEqual(['copy-image']);
+  });
+
+  it('finds the phone, batch and recording actions by what people call them', () => {
+    expect(ids(filterActions(items(), 'phone'))).toEqual(['send-phone', 'pair-phone']);
+    expect(ids(filterActions(items(), 'android'))).toEqual(['send-phone', 'pair-phone']);
+    expect(ids(filterActions(items(), 'batch'))[0]).toBe('batch');
+    expect(ids(filterActions(items(), 'gif'))).toEqual(['capture-gif']);
+    expect(ids(filterActions(items(), 'scrolling'))[0]).toBe('capture-scroll');
   });
 
   it('is case-insensitive', () => {

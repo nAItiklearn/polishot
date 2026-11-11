@@ -107,3 +107,36 @@ export function joinPath(folder: string, name: string): string {
   const sep = folder.includes('/') && !folder.includes(BACKSLASH) ? '/' : BACKSLASH;
   return folder.endsWith(BACKSLASH) || folder.endsWith('/') ? `${folder}${name}` : `${folder}${sep}${name}`;
 }
+
+export interface DayGroup<T> {
+  /** "Today", "Yesterday", "Earlier this week" or "November 2026". */
+  label: string;
+  items: T[];
+}
+
+/**
+ * Splits a newest-first list into the headings a history grid shows: Today, Yesterday, the rest of the
+ * past week, then one group per month. Consecutive items with the same heading share a group, so a list
+ * that grows by paging simply extends the last group.
+ */
+export function groupByDay<T extends { createdAt: number }>(items: readonly T[], opts: TimeOpts = {}): Array<DayGroup<T>> {
+  const now = opts.now ?? Date.now();
+  const { locale, timeZone } = opts;
+  const today = startOfDay(now, timeZone);
+  const groups: Array<DayGroup<T>> = [];
+  for (const item of items) {
+    const days = Math.round((today - startOfDay(item.createdAt, timeZone)) / 86_400_000);
+    const label =
+      days <= 0
+        ? 'Today'
+        : days === 1
+          ? 'Yesterday'
+          : days < 7
+            ? 'Earlier this week'
+            : new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone }).format(item.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else groups.push({ label, items: [item] });
+  }
+  return groups;
+}

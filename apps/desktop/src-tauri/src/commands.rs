@@ -30,9 +30,13 @@ where
         .map_err(|_| "The operation was interrupted.".to_string())?
 }
 
-/// Raw binary body of an `invoke(cmd, bytes, ...)` call.
-fn raw_body(request: &Request<'_>) -> CmdResult<Vec<u8>> {
+/// Raw binary body of an `invoke(cmd, bytes, ...)` call, copied only if it is at most `max` bytes
+/// (the check comes first: copying a body just to reject it would double the memory for nothing).
+fn raw_body(request: &Request<'_>, max: usize) -> CmdResult<Vec<u8>> {
     match request.body() {
+        InvokeBody::Raw(bytes) if bytes.len() > max => {
+            Err("That file is too large to handle.".to_string())
+        }
         InvokeBody::Raw(bytes) => Ok(bytes.clone()),
         InvokeBody::Json(_) => Err("Expected binary data.".to_string()),
     }
@@ -172,13 +176,13 @@ pub async fn export_save(app: AppHandle, request: Request<'_>) -> CmdResult<Stri
                 .to_string(),
         ),
     };
-    let bytes = raw_body(&request)?;
+    let bytes = raw_body(&request, crate::export::MAX_EXPORT_BYTES)?;
     blocking(move || files::export_save(&app, &bytes, &name, save_path.as_deref())).await
 }
 
 #[tauri::command]
 pub async fn copy_image(app: AppHandle, request: Request<'_>) -> CmdResult<()> {
-    let bytes = raw_body(&request)?;
+    let bytes = raw_body(&request, imgio::MAX_FILE_BYTES as usize)?;
     blocking(move || {
         let decoded = imgio::decode_limited(&bytes)?;
         let png = if crate::ids::content_matches_ext(&bytes, "png") {
@@ -349,22 +353,34 @@ fn set_autostart(app: &AppHandle, enabled: bool) -> CmdResult<()> {
 pub async fn settings_set(app: AppHandle, patch: SettingsPatch) -> CmdResult<Settings> {
     blocking(move || {
         let st = state(&app);
+        // One change at a time, start to finish. Without this two quick changes (a slider and a
+        // toggle, or two windows) both read the same "current" settings and the second save
+        // silently undoes the first.
+        let _serial = st
+            .settings_lock
+            .lock()
+            .map_err(|_| "Settings are busy. Try again.".to_string())?;
         let current = st.settings();
         let next = current.patched(patch)?;
         if next == current {
             return Ok(current);
         }
-        if next.autostart != current.autostart {
+        let autostart_changed = next.autostart != current.autostart;
+        if autostart_changed {
             set_autostart(&app, next.autostart)?;
         }
+        // Every later failure puts the start-with-Windows entry back as it was.
+        let undo_autostart = || {
+            if autostart_changed {
+                let _ = set_autostart(&app, current.autostart);
+            }
+        };
         let shortcuts_changed = next.shortcut != current.shortcut
             || next.scroll_shortcut != current.scroll_shortcut
             || next.gif_shortcut != current.gif_shortcut;
         if shortcuts_changed {
             if let Err(e) = shortcuts::apply(&app, &next) {
-                if next.autostart != current.autostart {
-                    let _ = set_autostart(&app, current.autostart);
-                }
+                undo_autostart();
                 return Err(e);
             }
         }
@@ -372,6 +388,7 @@ pub async fn settings_set(app: AppHandle, patch: SettingsPatch) -> CmdResult<Set
             if shortcuts_changed {
                 let _ = shortcuts::apply(&app, &current);
             }
+            undo_autostart();
             return Err(e);
         }
         if let Ok(mut w) = st.settings.write() {
@@ -390,11 +407,22 @@ pub async fn settings_set(app: AppHandle, patch: SettingsPatch) -> CmdResult<Set
 
 fn refresh_license(app: &AppHandle) -> LicenseStatus {
     let st = state(app);
-    let status = license::current(
+    let status = match license::current_checked(
         &st.license_store,
         &license::prod_verifier,
         crate::BUILD_DAYS,
-    );
+    ) {
+        Ok(status) => status,
+        Err(e) => {
+            // Credential Manager could not be read: that is not "no key". Say so, and keep what
+            // was known (a Pro user is not demoted by a transient failure).
+            st.add_warning(e);
+            st.license
+                .lock()
+                .map(|l| l.clone())
+                .unwrap_or_else(|_| LicenseStatus::unlicensed())
+        }
+    };
     if let Ok(mut l) = st.license.lock() {
         *l = status.clone();
     }
@@ -475,9 +503,20 @@ pub async fn qs_pair_start(app: AppHandle, device_id: String) -> CmdResult<quick
 #[tauri::command]
 pub async fn qs_pair_confirm(
     app: AppHandle,
+    peer_id: String,
+    sas: String,
     accepted: bool,
 ) -> CmdResult<crate::qspeers::DeviceEntry> {
-    blocking(move || quicksend::ensure(&app)?.pair_confirm(accepted)).await
+    blocking(move || {
+        // The answer names the pairing the user was looking at: the device id and the code from
+        // `qs:pair-code`. A different pairing on the PC is never confirmed by it.
+        let peer_id = quicksend::parse_device_text(&peer_id)?;
+        if sas.len() > 16 {
+            return Err("Invalid pairing code.".to_string());
+        }
+        quicksend::ensure(&app)?.pair_confirm(&peer_id, &sas, accepted)
+    })
+    .await
 }
 
 /// Send PNG bytes (raw body) to a paired device. Headers: `x-device-id`, `x-filename`.
@@ -496,12 +535,8 @@ pub async fn qs_send(app: AppHandle, request: Request<'_>) -> CmdResult<()> {
         .filter(|n| n.len() <= 512)
         .unwrap_or_else(|| "screenshot.png".to_string());
     let device = quicksend::parse_device_text(&device)?;
-    if let InvokeBody::Raw(raw) = request.body() {
-        if raw.len() as u64 > polishot_quicksend::MAX_FILE_SIZE {
-            return Err("That image is too large to send (limit 50 MB).".to_string());
-        }
-    }
-    let bytes = raw_body(&request)?;
+    let bytes = raw_body(&request, polishot_quicksend::MAX_FILE_SIZE as usize)
+        .map_err(|_| "That image is too large to send (limit 50 MB).".to_string())?;
     blocking(move || quicksend::ensure(&app)?.send_png(&device, &file_name, &bytes)).await
 }
 
@@ -528,7 +563,8 @@ pub async fn qs_incoming_respond(app: AppHandle, request_id: u64, accept: bool) 
 
 #[tauri::command]
 pub async fn pin_open(app: AppHandle, id: String) -> CmdResult<()> {
-    pin::open(&app, &id)
+    // Looking up the capture can read a file; keep that off the async runtime's threads.
+    blocking(move || pin::open(&app, &id)).await
 }
 
 #[tauri::command]

@@ -7,19 +7,25 @@ import { actionDef, type ActionId } from '../lib/commands';
 import { cx } from '../lib/format';
 import { IconButton } from './IconButton';
 import { Keys } from './Keys';
+import { SendMenu, type SendMenuProps } from './SendMenu';
 
 const ICON = { size: 16, strokeWidth: 1.5, 'aria-hidden': true } as const;
 
+/**
+ * The Print P (packages/brand/assets/logo-mark.svg), drawn with the theme's ink and accent so it reads on
+ * light and dark. The shapes are the brand's own; do not redraw or recolour them (BRAND.md).
+ */
 function BrandMark() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <rect x="0.5" y="0.5" width="15" height="15" rx="4.5" fill="var(--ps-accent)" />
+    <svg width="18" height="18" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
       <path
-        d="M4.75 8V5.75a1 1 0 0 1 1-1H8M11.25 8v2.25a1 1 0 0 1-1 1H8"
-        fill="none"
-        stroke="var(--ps-accent-fg)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        fill="var(--ps-text)"
+        d="M14.5 26.6L18.5 26.6A3 3 0 0 1 21.5 29.6L21.5 53.6A3 3 0 0 1 18.5 56.6L14.5 56.6A3 3 0 0 1 11.5 53.6L11.5 29.6A3 3 0 0 1 14.5 26.6Z"
+      />
+      <path
+        fill="var(--ps-accent)"
+        fillRule="evenodd"
+        d="M17.448 10.992L42.311 8.378A7.5 7.5 0 0 1 50.554 15.053L52.227 30.966A7.5 7.5 0 0 1 45.552 39.208L20.689 41.822A7.5 7.5 0 0 1 12.446 35.147L10.773 19.234A7.5 7.5 0 0 1 17.448 10.992ZM24.252 18.321L40.164 16.648A2.5 2.5 0 0 1 42.912 18.873L43.957 28.818A2.5 2.5 0 0 1 41.732 31.566L25.82 33.238A2.5 2.5 0 0 1 23.072 31.013L22.027 21.068A2.5 2.5 0 0 1 24.252 18.321Z"
       />
     </svg>
   );
@@ -94,13 +100,15 @@ export interface TitleBarProps {
   /** An export started from the title bar is running. */
   busy: boolean;
   onAction: (id: ActionId) => void;
+  /** The Send-to-phone button and its menu. */
+  send: Omit<SendMenuProps, 'disabled'>;
 }
 
 /**
  * Slim custom title bar: brand, the command palette entry, the two primary actions, navigation and the
  * window controls. The bar itself and its empty stretches are the drag region.
  */
-export function TitleBar({ view, hasImage, pro, busy, onAction }: TitleBarProps) {
+export function TitleBar({ view, hasImage, pro, busy, onAction, send }: TitleBarProps) {
   const showActions = view === 'editor' && hasImage;
   return (
     <header className="pv-titlebar" data-tauri-drag-region>
@@ -118,8 +126,8 @@ export function TitleBar({ view, hasImage, pro, busy, onAction }: TitleBarProps)
       </div>
 
       <div className="pv-titlebar-right">
-        {showActions ? (
-          <>
+        {/* Always in the layout, hidden when there is nothing to act on: the search box never moves when a capture opens or a screen changes. */}
+        <div className="pv-titlebar-actions" data-shown={showActions}>
             <button type="button" className="pe-btn pe-btn-primary pv-tbtn" disabled={busy} aria-keyshortcuts="Control+C" onClick={() => onAction('copy-image')}>
               <Copy {...ICON} />
               <span className="pv-tbtn-text">Copy</span>
@@ -131,9 +139,9 @@ export function TitleBar({ view, hasImage, pro, busy, onAction }: TitleBarProps)
             <IconButton label="Pin to screen" shortcut={actionDef('pin').shortcut} onClick={() => onAction('pin')}>
               <Pin {...ICON} />
             </IconButton>
+            <SendMenu {...send} disabled={busy} />
             <span className="pv-titlebar-sep" aria-hidden="true" />
-          </>
-        ) : null}
+        </div>
         <IconButton label="History" shortcut={actionDef('go-history').shortcut} pressed={view === 'history'} onClick={() => onAction('go-history')}>
           <Clock {...ICON} />
         </IconButton>

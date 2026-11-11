@@ -3,7 +3,7 @@
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
-use global_hotkey::hotkey::HotKey as Shortcut;
+use global_hotkey::hotkey::{HotKey as Shortcut, Modifiers};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_SHORTCUT: &str = "Ctrl+Shift+2";
@@ -188,10 +188,11 @@ pub fn parse_shortcut(s: &str, what: &str, allow_empty: bool) -> Result<Option<S
     }
     let sc =
         Shortcut::from_str(t).map_err(|_| format!("{what} \"{t}\" is not a valid shortcut."))?;
-    // A bare key (no modifier) would hijack normal typing system-wide.
-    if t.split('+').count() < 2 {
+    // A bare key, or Shift alone, would hijack normal typing system-wide, and the Windows key is
+    // reserved by the shell. Ctrl or Alt must be part of every global shortcut.
+    if t.split('+').count() < 2 || !sc.mods.intersects(Modifiers::CONTROL | Modifiers::ALT) {
         return Err(format!(
-            "{what} needs at least one modifier key (Ctrl, Alt or Shift)."
+            "{what} needs Ctrl or Alt, for example Ctrl+Shift+2."
         ));
     }
     Ok(Some(sc))
@@ -286,9 +287,9 @@ pub fn save(path: &Path, settings: &Settings) -> Result<(), String> {
         .map_err(|e| format!("Could not create the settings folder: {e}"))?;
     let json = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("Could not serialise settings: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(|e| format!("Could not write settings: {e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("Could not save settings: {e}"))
+    // Unique temp file, flushed to disk before the rename (see `jobs::write_atomic`).
+    crate::jobs::write_atomic(path, json.as_bytes())
+        .map_err(|e| format!("Could not save settings: {e}"))
 }
 
 #[cfg(test)]
@@ -353,6 +354,21 @@ mod tests {
             .patched(patch(r#"{"shortcut":"Ctrl+Nonsense+"}"#))
             .is_err());
         assert!(base().patched(patch(r#"{"shortcut":"S"}"#)).is_err()); // no modifier
+                                                                        // Shift or the Windows key alone would hijack typing or the shell.
+        for weak in ["Shift+S", "Super+S", "Shift+Super+S", "Shift+F9"] {
+            let e = base()
+                .patched(patch(&format!(r#"{{"shortcut":"{weak}"}}"#)))
+                .unwrap_err();
+            assert!(e.contains("Ctrl or Alt"), "{weak}: {e}");
+        }
+        for strong in ["Alt+S", "Ctrl+F9", "Ctrl+Shift+Alt+S", "Alt+Shift+4"] {
+            assert!(
+                base()
+                    .patched(patch(&format!(r#"{{"shortcut":"{strong}"}}"#)))
+                    .is_ok(),
+                "{strong}"
+            );
+        }
         assert!(base()
             .patched(patch(r#"{"scrollShortcut":"Ctrl+Shift+3"}"#))
             .is_ok());

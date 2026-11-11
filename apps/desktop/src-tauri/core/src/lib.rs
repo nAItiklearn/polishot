@@ -27,6 +27,7 @@ pub mod qsstore;
 pub mod routes;
 pub mod scroll;
 pub mod secure;
+pub mod session;
 pub mod settings;
 pub mod store;
 pub mod timing;

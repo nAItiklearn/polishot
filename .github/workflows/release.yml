@@ -1,31 +1,73 @@
 name: Release
 
 # Builds the Windows installers and the Android app from a version tag and publishes them as a
-# GitHub Release. Asset names must match ASSETS in apps/web/lib/site.ts, because the download page
-# links to /releases/latest/download/<name>:
-#   Polishot-Setup-x64.exe, Polishot-x64.msi, Polishot.apk (+ Polishot.aab, SHA256SUMS.txt)
+# GitHub Release. Asset names must match ASSETS in apps/web/lib/site.ts:
+#   Polishot-Setup-x64.exe, Polishot-x64.msi, Polishot.apk   (plus Polishot.aab and SHA256SUMS.txt)
 #
-# Trigger: push a tag `v<version>` where <version> equals "version" in
-# apps/desktop/src-tauri/tauri.conf.json and CHANGELOG.md has a "## <version>" section.
-# workflow_dispatch with an existing tag publishes that tag; without a tag it is a dry run that
-# builds and uploads workflow artifacts only.
+# HOW A RELEASE IS CUT
+#   1. Bump "version" in apps/desktop/src-tauri/tauri.conf.json (and the Android versionName), add a
+#      "## <version>" section to CHANGELOG.md (its text becomes the release notes), merge to main.
+#   2. Wait for CI on that main commit to go green, then tag it and push the tag:  v<version>.
+#   3. Approve the two "release" environment prompts (see below).
+# To re-publish, run this workflow from the tag (Actions > Release > Run workflow > "Use workflow from:
+# Tag: v0.1.0"). Run from a branch it is a DRY RUN: both platforms are built and kept as workflow
+# artifacts, nothing is signed with production keys and nothing is published.
 #
-# Optional secrets (each step skips cleanly when they are absent):
-#   WINDOWS_CERT_PFX (base64 .pfx), WINDOWS_CERT_PASSWORD
-#   POLISHOT_KEYSTORE_BASE64, POLISHOT_KEYSTORE_PASSWORD, POLISHOT_KEY_ALIAS, POLISHOT_KEY_PASSWORD
+# WHAT IT REFUSES TO DO (the pipeline fails closed)
+#   - Publish a tag that does not match tauri.conf.json, is not strictly vX.Y.Z[-pre], has no
+#     CHANGELOG section, or whose commit is not an ancestor of the default branch.
+#   - Publish a commit whose "All checks" CI run did not succeed (it waits up to 30 minutes for a run that
+#     is still going, so tagging right after the merge is fine).
+#   - Publish without the Android release keystore. (The Windows certificate is optional; the release
+#     notes say whether the installers are signed.)
+#
+# GITHUB ENVIRONMENT "release" (create it before the first tag: Settings > Environments > New environment)
+#   Deployment branches and tags: "Selected branches and tags", add the tag rule  v*
+#   Required reviewers:           the owner. Keep "Prevent self-review" OFF while the owner is the only
+#                                 collaborator, otherwise nobody can approve.
+#   Environment secrets (add them HERE and delete any repository-level copies, so that only a job that
+#   passed the gate can read them):
+#     WINDOWS_CERT_PFX            optional. base64 of the Authenticode .pfx. PowerShell, to the clipboard:
+#                                 [Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx")) | Set-Clipboard
+#     WINDOWS_CERT_PASSWORD       optional. The .pfx password (leave unset for a passwordless .pfx).
+#     POLISHOT_KEYSTORE_BASE64    REQUIRED to publish. base64 of the Android keystore, same one-liner.
+#     POLISHOT_KEYSTORE_PASSWORD  REQUIRED to publish. Keystore password.
+#     POLISHOT_KEY_ALIAS          REQUIRED to publish. Key alias inside the keystore.
+#     POLISHOT_KEY_PASSWORD       REQUIRED to publish. Key password.
+#     BLOB_READ_WRITE_TOKEN       only for the public-downloads job (below).
+#   Each release asks for approval twice: once to start the Windows and Android builds (they hold the
+#   signing keys; one click approves both), once to publish (a third time for the public-downloads job
+#   when that is switched on, because it reads BLOB_READ_WRITE_TOKEN). Dry runs use a separate, secret-free
+#   environment named "release-dry-run" that GitHub creates on first use; leave it empty.
+#   GITHUB_TOKEN is provided automatically and is what creates the release.
+#
+# Keep the Android keystore safe and make it BEFORE the first public release: an APK signed with another
+# key cannot be updated in place (Android rejects the signature change).
+#
+# PUBLIC DOWNLOADS (optional, off by default)
+#   This repository is private, so GitHub Release assets can only be downloaded by collaborators and the
+#   website's download links cannot work from them. With the repository variable  PUBLIC_DOWNLOADS=true
+#   (Settings > Secrets and variables > Actions > Variables) a last job copies the release files to a
+#   Vercel Blob store with public access, checks that each public URL serves the same bytes, and prints
+#   every URL with its SHA-256 in the job summary:
+#     https://<store>.public.blob.vercel-storage.com/releases/<tag>/<file>
+#     https://<store>.public.blob.vercel-storage.com/releases/latest/<file>     (stable link, 60 s cache)
+#   Setup: Vercel dashboard > Storage > create a Blob store with public access, copy its read-write
+#   token into the BLOB_READ_WRITE_TOKEN environment secret, then point the website's download links
+#   at the "latest" URLs.
+#
+# BUILD PROVENANCE (optional, off by default)
+#   Repository variable  ATTEST_RELEASES=true  signs a SLSA provenance attestation for the four release
+#   files (verify with `gh attestation verify <file> --repo <owner>/<repo>`). GitHub only supports this
+#   for public repositories or on GitHub Enterprise Cloud, so leave it off while the repo is private.
 
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*']
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing tag to release (e.g. v0.1.0). Leave empty for a dry run without publishing."
-        required: false
-        default: ""
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -36,9 +78,13 @@ env:
 
 jobs:
   meta:
-    name: Resolve version and build date
+    name: Verify tag and resolve version
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Includes up to 30 minutes of waiting for CI on the tagged commit.
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      checks: read
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
@@ -47,32 +93,76 @@ jobs:
       source_date_epoch: ${{ steps.meta.outputs.source_date_epoch }}
       build_days: ${{ steps.meta.outputs.build_days }}
     steps:
+      # Full history: the ancestry check below needs origin/<default branch> and the tagged commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - id: meta
-        name: Check tag, version and changelog
+        name: Check tag, version, branch ancestry and CI
         env:
-          EVENT: ${{ github.event_name }}
-          PUSHED_TAG: ${{ github.ref_name }}
-          INPUT_TAG: ${{ inputs.tag }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
           conf_version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
-          if [ "${EVENT}" = "push" ]; then tag="${PUSHED_TAG}"; else tag="${INPUT_TAG}"; fi
+
+          # Only a tag publishes. A branch run (workflow_dispatch) is a dry run.
+          if [ "${REF_TYPE}" = "tag" ]; then tag="${REF_NAME}"; else tag=""; fi
 
           if [ -n "${tag}" ]; then
+            if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Tag '${tag}' is not of the form v<major>.<minor>.<patch>[-prerelease]."
+              exit 1
+            fi
             publish=true
             version="${tag#v}"
             if [ "${version}" != "${conf_version}" ]; then
               echo "::error::Tag ${tag} does not match tauri.conf.json version ${conf_version}."
               exit 1
             fi
+
+            sha=$(git rev-parse HEAD)
+            if ! git merge-base --is-ancestor "${sha}" "origin/${DEFAULT_BRANCH}"; then
+              echo "::error::Tag ${tag} (${sha}) is not part of ${DEFAULT_BRANCH}. Releases are only cut from commits on ${DEFAULT_BRANCH}."
+              exit 1
+            fi
+
+            # The "All checks" job of ci.yml is the single gate. Only check runs created by GitHub Actions
+            # count, so another app cannot satisfy it by posting a check with the same name. A run that
+            # is still going is awaited; a finished run that did not succeed stops the release.
+            state="none:none"
+            for attempt in $(seq 1 60); do
+              state=$(gh api "repos/${REPO}/commits/${sha}/check-runs?check_name=All%20checks&per_page=100" \
+                --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.started_at) | last | "\(.status // "none"):\(.conclusion // "none")"')
+              case "${state}" in
+                completed:success) break ;;
+                completed:*)
+                  echo "::error::CI on ${sha} finished with '${state}'. Fix it (or re-run CI) before releasing."
+                  exit 1
+                  ;;
+              esac
+              echo "CI on ${sha} is not finished (${state}); waiting, attempt ${attempt} of 60."
+              sleep 30
+            done
+            if [ "${state}" != "completed:success" ]; then
+              echo "::error::No successful 'All checks' run for ${sha} after waiting 30 minutes."
+              exit 1
+            fi
           else
             publish=false
             version="${conf_version}"
-            echo "::notice title=Dry run::No tag given; building ${version} without publishing."
+            echo "::notice title=Dry run::Not running from a tag; building ${version} without publishing."
+          fi
+
+          # The MSI version field only takes numeric pre-release identifiers (up to 65535).
+          if [[ "${version}" == *-* && ! "${version#*-}" =~ ^[0-9]+$ ]]; then
+            echo "::warning::Pre-release '${version#*-}' is not numeric; the WiX/MSI build may reject ${version}."
           fi
 
           android_version=$(sed -n 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' apps/android/app/build.gradle.kts | head -n1)
@@ -83,40 +173,47 @@ jobs:
           # Fail before the long builds if the release notes are missing.
           node scripts/ci/changelog-section.mjs "${version}" > /dev/null
 
-          # Build date = commit time of the tagged commit, so rebuilding a tag gives the same
-          # BUILD_DAYS and the license update window (CONTRACTS section 5b) is deterministic.
-          epoch=$(git log -1 --format=%ct HEAD)
+          # BUILD_DAYS (the license update window, CONTRACTS section 5b) is the real build time, taken
+          # once so the desktop and Android builds agree. Commit dates are chosen by whoever pushes the
+          # commit, so they are never used for this.
+          now=$(date -u +%s)
           case "${version}" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           {
             echo "tag=${tag}"
             echo "version=${version}"
             echo "publish=${publish}"
             echo "prerelease=${prerelease}"
-            echo "source_date_epoch=${epoch}"
-            echo "build_days=$((epoch / 86400))"
+            echo "source_date_epoch=${now}"
+            echo "build_days=$((now / 86400))"
           } >> "${GITHUB_OUTPUT}"
-          echo "Version ${version}, SOURCE_DATE_EPOCH ${epoch}, BUILD_DAYS $((epoch / 86400))."
+          echo "Version ${version}, publish=${publish}, build time ${now}, BUILD_DAYS $((now / 86400))."
 
   windows:
     name: Windows installers (NSIS + MSI)
     needs: meta
     runs-on: windows-latest
     timeout-minutes: 60
+    # Publishing runs behind the protected "release" environment (tags only, required reviewer); a dry
+    # run uses an empty one, so it never sees the signing certificate.
+    environment: ${{ needs.meta.outputs.publish == 'true' && 'release' || 'release-dry-run' }}
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
     env:
       # Read by apps/desktop/src-tauri/build.rs to embed POLISHOT_BUILD_DAYS.
       SOURCE_DATE_EPOCH: ${{ needs.meta.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
+      # No package-manager cache in this workflow: release builds start from a clean slate.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
 
+      # windows-latest ships MSVC, so this is x86_64-pc-windows-msvc.
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
           toolchain: stable
@@ -142,7 +239,9 @@ jobs:
           Copy-Item $nsis[0].FullName dist/Polishot-Setup-x64.exe
           Copy-Item $msi[0].FullName dist/Polishot-x64.msi
 
+      # The certificate is optional: without it the installers are unsigned and the release notes say so.
       - name: Sign installers (only when WINDOWS_CERT_PFX exists)
+        id: sign
         shell: pwsh
         env:
           CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
@@ -150,6 +249,7 @@ jobs:
         run: |
           if (-not $env:CERT_PFX) {
             Write-Output "::notice title=Unsigned installers::WINDOWS_CERT_PFX is not set, so the installers are not code-signed."
+            Add-Content -Path $env:GITHUB_OUTPUT -Value 'signed=false'
             exit 0
           }
           $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
@@ -166,6 +266,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "signtool exited with $LASTEXITCODE." }
             & $signtool.FullName verify /pa dist/Polishot-Setup-x64.exe dist/Polishot-x64.msi
             if ($LASTEXITCODE -ne 0) { throw "signtool verify exited with $LASTEXITCODE." }
+            Add-Content -Path $env:GITHUB_OUTPUT -Value 'signed=true'
           } finally {
             Remove-Item -Force -ErrorAction SilentlyContinue $pfx
           }
@@ -175,32 +276,36 @@ jobs:
           name: release-windows
           path: dist/*
           if-no-files-found: error
+          retention-days: 14
 
   android:
     name: Android APK + AAB
     needs: meta
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    environment: ${{ needs.meta.outputs.publish == 'true' && 'release' || 'release-dry-run' }}
+    outputs:
+      signed: ${{ steps.keystore.outputs.signed }}
     env:
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx3g
       BUILD_DAYS: ${{ needs.meta.outputs.build_days }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
 
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: 17
 
+      # Wrapper-jar validation is on by default. Caches are read-only on tag builds.
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           cache-read-only: true
@@ -213,15 +318,23 @@ jobs:
 
       # apps/android/app/build.gradle.kts reads POLISHOT_KEYSTORE, POLISHOT_KEYSTORE_PASSWORD,
       # POLISHOT_KEY_ALIAS and POLISHOT_KEY_PASSWORD, and falls back to debug signing without them.
-      - name: Release signing (only when the keystore secret exists)
+      # A published release must never take that fallback, so this step fails instead; a dry run only warns.
+      - name: Release signing (required when publishing)
+        id: keystore
         env:
+          PUBLISH: ${{ needs.meta.outputs.publish }}
           KEYSTORE_BASE64: ${{ secrets.POLISHOT_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.POLISHOT_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.POLISHOT_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.POLISHOT_KEY_PASSWORD }}
         run: |
-          if [ -z "${KEYSTORE_BASE64}" ]; then
-            echo "::warning title=Debug-signed Android build::POLISHOT_KEYSTORE_BASE64 is not set; the APK and AAB use the debug key and cannot go to the Play Store."
+          if [ -z "${KEYSTORE_BASE64}" ] || [ -z "${KEYSTORE_PASSWORD}" ] || [ -z "${KEY_ALIAS}" ] || [ -z "${KEY_PASSWORD}" ]; then
+            if [ "${PUBLISH}" = "true" ]; then
+              echo "::error title=Android release key missing::POLISHOT_KEYSTORE_BASE64, POLISHOT_KEYSTORE_PASSWORD, POLISHOT_KEY_ALIAS and POLISHOT_KEY_PASSWORD must all be set as secrets of the 'release' environment. A release is never signed with the debug key."
+              exit 1
+            fi
+            echo "::warning title=Debug-signed Android build::The Android keystore secrets are not set; this dry run uses the debug key."
+            echo "signed=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
           keystore="${RUNNER_TEMP}/polishot-release.keystore"
@@ -233,9 +346,10 @@ jobs:
             echo "POLISHOT_KEY_ALIAS=${KEY_ALIAS}"
             echo "POLISHOT_KEY_PASSWORD=${KEY_PASSWORD}"
           } >> "${GITHUB_ENV}"
+          echo "signed=true" >> "${GITHUB_OUTPUT}"
           echo "Release keystore configured."
 
-      # -PbuildDays pins BuildConfig.BUILD_DAYS to the tag commit date (same value as desktop).
+      # -PbuildDays pins BuildConfig.BUILD_DAYS to the build time (same value as desktop).
       - name: assembleRelease bundleRelease
         working-directory: apps/android
         run: |
@@ -258,6 +372,7 @@ jobs:
           name: release-android
           path: dist/*
           if-no-files-found: error
+          retention-days: 14
 
   release:
     name: Publish GitHub Release
@@ -265,12 +380,13 @@ jobs:
     if: needs.meta.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: release
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.meta.outputs.tag }}
+          persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -281,8 +397,15 @@ jobs:
       - name: Checksums and release notes
         env:
           VERSION: ${{ needs.meta.outputs.version }}
+          WINDOWS_SIGNED: ${{ needs.windows.outputs.signed }}
+          ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
         run: |
           set -euo pipefail
+          # Defence in depth: the android job already refuses to build without the release key.
+          if [ "${ANDROID_SIGNED}" != "true" ]; then
+            echo "::error::The Android build was not signed with the release key; refusing to publish."
+            exit 1
+          fi
           cd dist
           for f in Polishot-Setup-x64.exe Polishot-x64.msi Polishot.apk Polishot.aab; do
             [ -f "$f" ] || { echo "::error::Missing release asset $f"; exit 1; }
@@ -290,7 +413,21 @@ jobs:
           sha256sum Polishot-Setup-x64.exe Polishot-x64.msi Polishot.apk Polishot.aab > SHA256SUMS.txt
           cat SHA256SUMS.txt
           cd ..
-          node scripts/ci/changelog-section.mjs "${VERSION}" > "${RUNNER_TEMP}/notes.md"
+
+          notes="${RUNNER_TEMP}/notes.md"
+          node scripts/ci/changelog-section.mjs "${VERSION}" > "${notes}"
+          {
+            echo
+            echo "---"
+            echo
+            if [ "${WINDOWS_SIGNED}" = "true" ]; then
+              echo "- Windows: the installers are code-signed."
+            else
+              echo "- Windows: the installers are not code-signed yet, so SmartScreen may warn on first run."
+            fi
+            echo "- Android: the APK and AAB are signed with the release key."
+            echo "- SHA-256 checksums are in SHA256SUMS.txt."
+          } >> "${notes}"
 
       - name: Create or update the release
         env:
@@ -308,9 +445,94 @@ jobs:
           else
             flags=()
             if [ "${PRERELEASE}" = "true" ]; then flags+=(--prerelease); fi
+            # With assets, gh creates a draft, uploads them, and only then publishes.
             gh release create "${TAG}" "${assets[@]}" \
               --verify-tag \
               --title "Polishot ${VERSION}" \
               --notes-file "${RUNNER_TEMP}/notes.md" \
               "${flags[@]}"
           fi
+
+      # The checksum file is shared with the optional jobs below.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-checksums
+          path: dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  # Off unless the repository variable ATTEST_RELEASES is "true" (see the header: needs a public repo
+  # or GitHub Enterprise Cloud).
+  attest:
+    name: Attest build provenance
+    needs: [meta, release]
+    if: needs.meta.outputs.publish == 'true' && vars.ATTEST_RELEASES == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/Polishot-Setup-x64.exe
+            dist/Polishot-x64.msi
+            dist/Polishot.apk
+            dist/Polishot.aab
+
+  # Off unless the repository variable PUBLIC_DOWNLOADS is "true" (see the header). Copies the exact files
+  # that went to the GitHub Release to a public Vercel Blob store.
+  publish-public:
+    name: Upload to the public host (Vercel Blob)
+    needs: [meta, release]
+    if: needs.meta.outputs.publish == 'true' && vars.PUBLIC_DOWNLOADS == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # Lockfile-pinned @vercel/blob (scripts/ci/package.json); no install scripts run in this job,
+      # which holds the Blob token.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify checksums
+        working-directory: dist
+        run: sha256sum --check --strict SHA256SUMS.txt
+
+      - name: Upload and print public URLs
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          latest=true
+          if [ "${PRERELEASE}" = "true" ]; then latest=false; fi
+          node scripts/ci/upload-blob.mjs "${TAG}" "${latest}" \
+            dist/Polishot-Setup-x64.exe dist/Polishot-x64.msi dist/Polishot.apk dist/Polishot.aab dist/SHA256SUMS.txt

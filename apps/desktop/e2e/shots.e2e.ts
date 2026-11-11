@@ -50,7 +50,7 @@ for (const theme of ['light', 'dark'] as const) {
     test('history', async ({ page }) => {
       await openReady(page, q);
       await page.keyboard.press('Control+h');
-      await expect(page.locator('.pv-hgrid')).toBeVisible();
+      await expect(page.locator('.pv-hgrid').first()).toBeVisible();
       await expect(page.locator('.pv-hthumb img').first()).toBeVisible();
       await shot(page, `08-history-${theme}`);
       await page.getByRole('searchbox').fill('deploy');
@@ -82,7 +82,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.keyboard.press('Control+,');
       await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
       await page.getByRole('radio', { name: 'Text' }).click();
-      await page.getByLabel('Text', { exact: true }).fill('maya.dev');
+      await page.getByRole('textbox', { name: 'Text', exact: true }).fill('maya.dev');
       await page.keyboard.press('Enter');
       await page.locator('.pv-scroll').evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await shot(page, `18-settings-pro-brand-${theme}`);
@@ -99,12 +99,13 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.getByRole('heading', { name: 'License' })).toBeVisible();
       await shot(page, `14-license-free-${theme}`);
 
-      await page.goto(`/?mock=1&${q}&lic=pro`);
+      // No capture arrives in these two, so nothing can navigate back to the editor while the screen is being shown.
+      await page.goto(`/?mock=1&${q}&lic=pro&capture=0`);
       await page.getByRole('button', { name: /License: Pro/ }).click();
       await expect(page.locator('.pv-facts')).toBeVisible();
       await shot(page, `15-license-pro-${theme}`);
 
-      await page.goto(`/?mock=1&${q}&lic=expired`);
+      await page.goto(`/?mock=1&${q}&lic=expired&capture=0`);
       await page.getByRole('button', { name: /License: Free/ }).click();
       await expect(page.locator('.pv-license-notice')).toBeVisible();
       await shot(page, `16-license-expired-${theme}`);

@@ -5,8 +5,12 @@
  * custom brand mark. A key also carries an update window; a build released after it behaves as Free
  * and says so. All of this is pure so the limits can be tested without the UI.
  */
+import { FREE_BATCH_LIMIT, FREE_PRESET_LIMIT, batchLimit as editorBatchLimit, presetLimit as editorPresetLimit } from '@polishot/editor';
 import type { UserPreset } from '@polishot/editor/react';
 import type { LicenseStatus } from '../../shared/ipc';
+
+// The numbers live in the editor package (CONTRACTS 5b), so the desktop can never disagree with it.
+export { FREE_BATCH_LIMIT, FREE_PRESET_LIMIT };
 
 export type EntitlementReason = 'no-key' | 'invalid' | 'updates-expired';
 
@@ -17,7 +21,6 @@ export interface Entitlement {
   updatesUntil?: string;
 }
 
-export const FREE_PRESET_LIMIT = 3;
 export const MAX_PRESETS = 100;
 /** Settings.userPresets is capped at 256 KB on the Rust side; stay well below it. */
 export const MAX_PRESETS_JSON_BYTES = 200 * 1024;
@@ -42,7 +45,12 @@ export function entitlementFrom(status: LicenseStatus | null | undefined): Entit
 
 /** Maximum saved looks, or `Infinity` for Pro. */
 export function presetLimit(ent: Entitlement): number {
-  return ent.pro ? Number.POSITIVE_INFINITY : FREE_PRESET_LIMIT;
+  return editorPresetLimit(ent.pro);
+}
+
+/** Images per batch-beautify run, or `Infinity` for Pro. Hosts enforce it (CONTRACTS 5b). */
+export function batchLimit(ent: Entitlement): number {
+  return editorBatchLimit(ent.pro);
 }
 
 export function canSavePreset(count: number, ent: Entitlement): boolean {

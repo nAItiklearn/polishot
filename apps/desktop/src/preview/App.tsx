@@ -3,13 +3,17 @@ import { TOOL_LABEL, TOOL_ORDER, TOOL_SHORTCUT, type Tool } from '@polishot/edit
 import { useEditorShortcuts, wordsToText, type ExportResult } from '@polishot/editor/react';
 import { detect } from '@polishot/redact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BatchDialog } from './components/BatchDialog';
 import { CommandPalette } from './components/CommandPalette';
+import { IncomingPrompts } from './components/IncomingPrompts';
+import { PairDialog } from './components/PairDialog';
 import { TitleBar } from './components/TitleBar';
 import { Toasts } from './components/Toasts';
 import { AppProvider, useApp, useBrandMarkState, useLicenseState, useSettingsState, useToasts, type View } from './context';
 import { useCaptureSession } from './hooks/useCaptureSession';
 import { useCopyPrewarm } from './hooks/useCopyPrewarm';
 import { useLooks } from './hooks/useLooks';
+import { useQuickSend } from './hooks/useQuickSend';
 import {
   ACTIONS,
   buildToolActions,
@@ -19,6 +23,8 @@ import {
   type PaletteItem,
 } from './lib/commands';
 import { basename, exportFilename, formatFromFilename, joinPath, middleEllipsis, sleep } from './lib/format';
+import { isImagePath } from './lib/batch';
+import { oversizeMessage, resolveSendTarget } from './lib/quicksend';
 import { formatAccelerator, matchesShortcut } from './lib/shortcuts';
 import { getEditor } from './session';
 import { EditorView, type InspectorTab } from './views/EditorView';
@@ -32,6 +38,8 @@ import {
   ipc,
   type AppInfo,
   type CaptureMeta,
+  type CaptureMode,
+  type DeviceEntry,
   type HistoryItem,
   type ThemeSetting,
 } from '../shared/ipc';
@@ -120,8 +128,8 @@ export function App() {
 
   const navigate = useCallback((v: View) => setView(v), []);
   const value = useMemo(
-    () => ({ editor, settings, updateSettings, license, ent, setLicense, info, brandMark, setBrandMark, notify, navigate, view }),
-    [editor, settings, updateSettings, license, ent, setLicense, info, brandMark, setBrandMark, notify, navigate, view],
+    () => ({ editor, settings, updateSettings, license, ent, setLicense, info, brandMark, setBrandMark, notify, dismissToast: dismiss, navigate, view }),
+    [editor, settings, updateSettings, license, ent, setLicense, info, brandMark, setBrandMark, notify, dismiss, navigate, view],
   );
 
   return (
@@ -132,7 +140,7 @@ export function App() {
 }
 
 function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['toasts']; onDismiss: (id: number) => void }) {
-  const { editor, settings, updateSettings, ent, info, brandMark, notify, navigate, view } = useApp();
+  const { editor, settings, updateSettings, ent, info, brandMark, notify, dismissToast, navigate, view } = useApp();
   const { state: capture, load, flush, rescan } = useCaptureSession(editor, settings, notify);
   const looks = useLooks();
 
@@ -140,6 +148,8 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sendMenuOpen, setSendMenuOpen] = useState(false);
+  const [batchFiles, setBatchFiles] = useState<string[] | null>(null);
   const busyRef = useRef(false);
 
   const ready = capture.phase === 'ready';
@@ -151,8 +161,10 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
   }, [editor, ent.pro]);
 
   // The editor draws the mark only while licensed (it fails closed), so setting it is always safe.
+  // Skipped when the editor already has it (the Inspector sets it first and the host stores it afterwards),
+  // so a mark being typed is never rewritten under the user's fingers.
   useEffect(() => {
-    editor.setBrandMark(brandMark);
+    if (JSON.stringify(editor.brandMark) !== JSON.stringify(brandMark)) editor.setBrandMark(brandMark);
   }, [editor, brandMark]);
 
   // A hover preview is only ever for the control under the pointer; never let one outlive its context.
@@ -182,6 +194,16 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
   useEffect(() => {
     if (openedId) navigate('editor');
   }, [openedId, navigate]);
+
+  // A file a phone sent arrives registered like a capture; open it the same way.
+  const onReceived = useCallback(
+    (meta: CaptureMeta, peerName: string) => {
+      openMeta(meta);
+      notify(`Received from ${peerName}`);
+    },
+    [openMeta, notify],
+  );
+  const qs = useQuickSend(notify, onReceived);
 
   const openPath = useCallback(
     async (path: string) => {
@@ -238,11 +260,12 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
         navigate(target);
       }),
       events.onCaptureError((message) => notify({ message, tone: 'error' })),
-      events.onShortcutExtra(() => notify('That capture mode is not part of this version yet.')),
       events.onFileDrop(({ paths }) => {
         setDragging(false);
-        const first = paths.find((p) => IMAGE_FILE.test(p));
-        if (first) void openPath(first);
+        const images = paths.filter((p) => isImagePath(p));
+        // Several images dropped together can only mean "do them all".
+        if (images.length > 1) setBatchFiles(images);
+        else if (images[0]) void openPath(images[0]);
         else notify({ message: 'That file is not an image. Use a PNG, JPEG, WebP or BMP.', tone: 'error' });
       }),
       events.onDragEnter(() => setDragging(true)),
@@ -262,8 +285,16 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
 
   const reveal = useCallback(
     async (path: string) => {
+      // The opener command accepts any saved image (a Save As can land outside the save folder); the app's own
+      // command is the fallback for the save folder itself.
       try {
         await ipc.revealInFolder(path);
+        return;
+      } catch {
+        // fall through
+      }
+      try {
+        await ipc.revealSaved(path);
       } catch {
         try {
           await ipc.copyText(path);
@@ -275,6 +306,70 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
     },
     [notify],
   );
+
+  // A GIF recording finished (the recorder shows its own toast near the screen; this one is for this window).
+  useEffect(
+    () =>
+      events.onGifSaved((gif) =>
+        notify({ message: `GIF saved: ${gif.name}`, action: { label: 'Show in folder', run: () => void reveal(gif.path) } }),
+      ),
+    [notify, reveal],
+  );
+
+  /* ------------------------------ quick send ------------------------------ */
+
+  const { refresh: refreshDevices, openPairing } = qs;
+
+  const sendToDevice = useCallback(
+    async (device: DeviceEntry) => {
+      if (!editor.hasImage || busyRef.current) return;
+      busyRef.current = true;
+      setBusy(true);
+      // The phone's owner has to accept, so this can take a few seconds; say what is happening.
+      const waiting = notify({ message: `Sending to ${device.name}…`, duration: 60_000 });
+      try {
+        const bytes = await blobToBytes(await prewarm.get());
+        const tooBig = oversizeMessage(bytes.byteLength);
+        if (tooBig) throw new Error(tooBig);
+        await ipc.qsSend(bytes, device.id, exportFilename(APP_SLUG, 'png'));
+        dismissToast(waiting);
+        notify(`Sent to ${device.name}`);
+      } catch (e) {
+        dismissToast(waiting);
+        notify({ message: errorMessage(e), tone: 'error' });
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    },
+    [editor, prewarm, notify, dismissToast],
+  );
+
+  /** Send: straight to the one phone in range; otherwise a menu of phones, or pairing when there are none. */
+  const pressSend = useCallback(async () => {
+    if (sendMenuOpen) {
+      setSendMenuOpen(false);
+      return;
+    }
+    if (!editor.hasImage || busyRef.current) return;
+    try {
+      const target = resolveSendTarget(await refreshDevices());
+      if (target.kind === 'pair') openPairing();
+      else if (target.kind === 'direct') void sendToDevice(target.device);
+      else setSendMenuOpen(true);
+    } catch (e) {
+      notify({ message: errorMessage(e), tone: 'error' });
+    }
+  }, [sendMenuOpen, editor, refreshDevices, openPairing, sendToDevice, notify]);
+
+  const chooseBatch = useCallback(async () => {
+    try {
+      const files = await native.pickImages();
+      if (files.length > 0) setBatchFiles(files);
+    } catch (e) {
+      notify({ message: errorMessage(e), tone: 'error' });
+    }
+  }, [notify]);
 
   const deliver = useCallback(
     async (action: 'copy' | 'save', blob: Blob, filename: string, savePath?: string) => {
@@ -382,7 +477,7 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
   );
 
   const startCapture = useCallback(
-    async (mode: 'region' | 'window') => {
+    async (mode: CaptureMode) => {
       await flush();
       // The window must be gone before the screen is frozen, or it would be in the picture.
       await native.hide().catch(() => undefined);
@@ -404,6 +499,7 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
         case 'save':
         case 'save-as':
         case 'pin':
+        case 'send-phone':
           return inEditor && ready;
         case 'copy-text':
           return inEditor && !!words && words.length > 0;
@@ -445,6 +541,22 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
           break;
         case 'capture-window':
           void startCapture('window');
+          break;
+        case 'capture-scroll':
+          void startCapture('scroll');
+          break;
+        case 'capture-gif':
+          void startCapture('gif');
+          break;
+        case 'send-phone':
+          void pressSend();
+          break;
+        case 'pair-phone':
+          setSendMenuOpen(false);
+          openPairing();
+          break;
+        case 'batch':
+          void chooseBatch();
           break;
         case 'open-file':
           void openFileDialog();
@@ -528,7 +640,7 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
     },
     [
       navigate, editor, startCapture, openFileDialog, pasteImage, exportNow, words, copyText, saveAs, capture.meta,
-      notify, getPending, flush, updateSettings, settings?.theme,
+      notify, getPending, flush, updateSettings, settings?.theme, pressSend, openPairing, chooseBatch,
     ],
   );
 
@@ -542,7 +654,7 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
       const { view: v, isEnabled: enabled, run: doRun, editor: ed } = stateRef.current;
       // Recording a shortcut, or a dialog / the palette open: they own the keyboard.
       if (document.body.dataset.recordingShortcut) return;
-      if (document.querySelector('[aria-modal="true"]')) return;
+      if (document.querySelector('[aria-modal="true"], [data-owns-keyboard]')) return;
       const typing = isTypingTarget(e.target);
 
       if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
@@ -596,9 +708,13 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
         if (n > 0) item.hint = `${n} found`;
       }
       if (a.id === 'theme-cycle') item.hint = settings?.theme ? `Now: ${settings.theme}` : undefined;
+      if (a.id === 'send-phone' && qs.devices) {
+        const target = resolveSendTarget(qs.devices);
+        if (target.kind === 'direct') item.hint = target.device.name;
+      }
       return item;
     });
-  }, [paletteOpen, isEnabled, getPending, settings?.shortcut, settings?.theme]);
+  }, [paletteOpen, isEnabled, getPending, settings?.shortcut, settings?.theme, qs.devices]);
 
   /* ------------------------------ render ------------------------------ */
 
@@ -610,9 +726,27 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
         pro={ent.pro}
         busy={busy}
         onAction={(id) => run(id)}
+        send={{
+          devices: qs.devices,
+          open: sendMenuOpen,
+          onPress: () => void pressSend(),
+          onClose: () => setSendMenuOpen(false),
+          onSend: (device) => {
+            setSendMenuOpen(false);
+            void sendToDevice(device);
+          },
+          onPair: () => {
+            setSendMenuOpen(false);
+            openPairing();
+          },
+        }}
       />
       <main className="pv-main">
-        {view === 'editor' ? (
+        {/*
+          The editor stays mounted behind History, Settings and License and is only hidden (visibility keeps its size),
+          so coming back is a change of one attribute: the canvas is not rebuilt, re-fitted or repainted.
+        */}
+        <div className="pv-layer" data-active={view === 'editor'}>
           <EditorView
             capture={capture}
             tab={tab}
@@ -625,12 +759,27 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
             onRescan={() => void rescan()}
             onUpgrade={() => navigate('license')}
           />
+        </div>
+        {view !== 'editor' ? (
+          <div className="pv-layer pv-layer-over">
+            {view === 'history' ? <HistoryView onBack={() => navigate('editor')} onOpen={(item) => void openHistoryItem(item)} /> : null}
+            {view === 'settings' ? <SettingsView qs={qs} onBack={() => navigate('editor')} onUpgrade={() => navigate('license')} /> : null}
+            {view === 'license' ? <LicenseView onBack={() => navigate('editor')} /> : null}
+          </div>
         ) : null}
-        {view === 'history' ? <HistoryView onBack={() => navigate('editor')} onOpen={(item) => void openHistoryItem(item)} /> : null}
-        {view === 'settings' ? <SettingsView onBack={() => navigate('editor')} onUpgrade={() => navigate('license')} /> : null}
-        {view === 'license' ? <LicenseView onBack={() => navigate('editor')} /> : null}
       </main>
       <Toasts toasts={toasts} onDismiss={onDismiss} />
+      <IncomingPrompts prompts={qs.incoming} onRespond={qs.respond} />
+      <PairDialog qs={qs} />
+      <BatchDialog
+        files={batchFiles}
+        onClose={() => setBatchFiles(null)}
+        onReveal={(path) => void reveal(path)}
+        onUpgrade={() => {
+          setBatchFiles(null);
+          navigate('license');
+        }}
+      />
       <CommandPalette
         open={paletteOpen}
         items={paletteItems}

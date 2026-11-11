@@ -4,7 +4,7 @@ import { ConfirmDialog } from '../components/Dialog';
 import { ViewHeader } from '../components/ViewHeader';
 import { useApp } from '../context';
 import { errorMessage, ipc } from '../../shared/ipc';
-import { FREE_PRESET_LIMIT, formatUpdatesUntil, updatesExpiredMessage } from '../lib/entitlement';
+import { FREE_BATCH_LIMIT, FREE_PRESET_LIMIT, formatUpdatesUntil, updatesExpiredMessage } from '../lib/entitlement';
 
 /** The site's pricing page. The price lives there, in one place. */
 export const PRICING_URL = `${SITE_URL}/pricing`;
@@ -21,6 +21,7 @@ const FREE_INCLUDES: readonly string[] = [
   `Every capture, edit, redaction and export feature`,
   `A small watermark on exports`,
   `Up to ${FREE_PRESET_LIMIT} saved looks`,
+  `Batch beautify, ${FREE_BATCH_LIMIT} images at a time`,
 ];
 
 function formatIssued(ms: number | undefined): string | null {
@@ -116,7 +117,7 @@ export function LicenseView({ onBack }: LicenseViewProps) {
                 <p className="pv-license-sub">{sub}</p>
               </div>
               {!ent.pro && !hasKey ? (
-                <button type="button" className="pe-btn" onClick={() => void openPricing(notify)}>
+                <button type="button" className="pe-btn pe-btn-primary" onClick={() => void openPricing(notify)}>
                   Buy Pro
                 </button>
               ) : null}
@@ -183,7 +184,7 @@ export function LicenseView({ onBack }: LicenseViewProps) {
                     aria-invalid={error ? true : undefined}
                     aria-describedby={error ? errId : undefined}
                   />
-                  <button type="submit" className="pe-btn pe-btn-primary" disabled={busy || !key.trim()}>
+                  <button type="submit" className={key.trim() ? 'pe-btn pe-btn-primary' : 'pe-btn'} disabled={busy || !key.trim()}>
                     {busy ? 'Checking…' : 'Activate'}
                   </button>
                 </div>
@@ -199,7 +200,7 @@ export function LicenseView({ onBack }: LicenseViewProps) {
                   Deactivate on this computer
                 </button>
                 {!ent.pro ? (
-                  <button type="button" className="pe-btn" onClick={() => void openPricing(notify)}>
+                  <button type="button" className="pe-btn pe-btn-primary" onClick={() => void openPricing(notify)}>
                     Buy Pro
                   </button>
                 ) : null}
@@ -207,15 +208,17 @@ export function LicenseView({ onBack }: LicenseViewProps) {
             ) : null}
           </section>
 
-          <section className="pv-compare" aria-label="What each edition includes">
-            <div>
-              <h2 className="pv-group-title">Free</h2>
-              <ul className="pv-list">
-                {FREE_INCLUDES.map((t) => (
-                  <li key={t}>{t}</li>
-                ))}
-              </ul>
-            </div>
+          <section className="pv-compare" data-single={ent.pro} aria-label={ent.pro ? 'What Pro includes' : 'What each edition includes'}>
+            {ent.pro ? null : (
+              <div>
+                <h2 className="pv-group-title">Free</h2>
+                <ul className="pv-list">
+                  {FREE_INCLUDES.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div>
               <h2 className="pv-group-title">Pro</h2>
               <ul className="pv-list">

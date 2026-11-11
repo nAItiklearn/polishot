@@ -1,37 +1,62 @@
 version: 2
+
+# Weekly update PRs for everything that has a lockfile or pinned versions. Minor and patch updates are
+# grouped into one PR per ecosystem; majors arrive one at a time so each can be reviewed alone.
+# The 7-day cooldown skips brand-new releases, in line with minimumReleaseAge in pnpm-workspace.yaml.
 updates:
-  # Actions are pinned to commit SHAs; Dependabot bumps the SHA and the version comment together.
+  # Actions are pinned to commit SHAs; Dependabot bumps the SHA and the "# vX.Y.Z" comment together.
+  # scripts/ci/check-workflows.mjs (run by CI) fails if a SHA pin or its comment goes missing.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'chore(ci)'
     groups:
       actions:
-        patterns: ["*"]
+        patterns: ['*']
 
-  # One pnpm workspace with a single lockfile at the root.
+  # One pnpm workspace with a single lockfile at the root; versions are pinned exactly (save-exact).
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'chore(deps)'
     versioning-strategy: increase
     open-pull-requests-limit: 10
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
 
+  # One Cargo workspace (apps/desktop/src-tauri and crates/*) with a single Cargo.lock at the root.
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'chore(deps)'
+    open-pull-requests-limit: 10
     groups:
       cargo-minor-patch:
         update-types: [minor, patch]
 
+  # Android: version catalog in apps/android/gradle/libs.versions.toml.
   - package-ecosystem: gradle
     directory: /apps/android
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'chore(deps)'
+    open-pull-requests-limit: 10
     groups:
       gradle-minor-patch:
         update-types: [minor, patch]

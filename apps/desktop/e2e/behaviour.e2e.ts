@@ -195,7 +195,7 @@ test.describe('settings', () => {
     await page.keyboard.press('Control+,');
     await page.getByRole('button', { name: /^Capture shortcut/ }).click();
     await page.keyboard.press('F9');
-    await expect(page.getByRole('alert').filter({ hasText: /Ctrl, Alt or Shift/ })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: /Ctrl or Alt/ })).toBeVisible();
   });
 
   test('optional shortcuts can be cleared with Backspace; Escape cancels recording', async ({ page }) => {
@@ -264,8 +264,11 @@ test.describe('licence and Pro', () => {
       await page.getByRole('button', { name: 'Save', exact: true }).last().click();
       await expect(page.getByRole('button', { name: `Look ${i}`, exact: true })).toBeVisible();
     }
-    await expect(page.getByPlaceholder('Name this look')).toHaveCount(0); // no field once the limit is reached
-    await expect(page.getByText('You have saved all 3 looks that Free includes.')).toBeVisible();
+    // At the limit the editor's own Saved looks section takes over: no field to type in, a plain note instead.
+    const saved = page.getByRole('region', { name: 'Saved looks' });
+    await expect(saved.getByPlaceholder('Limit reached')).toBeDisabled();
+    await expect(saved).toContainText('Free keeps 3 presets');
+    await expect(saved).toContainText('3 of 3');
 
     await page.goto('/?mock=1&theme=light&delay=0&lic=pro');
     await expect(page.locator('.pv-inspector')).toBeVisible();
@@ -276,16 +279,17 @@ test.describe('licence and Pro', () => {
     }
   });
 
-  test('Pro can set a text brand mark; Free is pointed at Pro', async ({ page }) => {
+  test('Pro can set a text brand mark in Settings; Free sees no brand mark group there', async ({ page }) => {
     await ready(page);
     await page.keyboard.press('Control+,');
-    await expect(page.getByRole('button', { name: 'Get Pro' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Brand mark' })).toHaveCount(0); // the Style tab's locked row is the one place that explains it
 
     await page.goto('/?mock=1&theme=light&delay=0&lic=pro');
     await expect(page.locator('.pv-inspector')).toBeVisible();
     await page.keyboard.press('Control+,');
     await page.getByRole('radio', { name: 'Text' }).click();
-    await page.getByLabel('Text', { exact: true }).fill('maya.dev');
+    await page.getByRole('textbox', { name: 'Text', exact: true }).fill('maya.dev');
     await page.keyboard.press('Enter');
     await expect.poll(() => page.evaluate(() => (window as unknown as { __polishotApp: { editor: { brandMark: { text?: string } | null } } }).__polishotApp.editor.brandMark?.text)).toBe('maya.dev');
   });

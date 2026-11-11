@@ -12,11 +12,12 @@ const MODES: readonly Choice<Mode>[] = [
 ];
 
 /**
- * Pro: your own text or logo in the corner of exports instead of the Polishot watermark.
- * Free: the row explains it and points at the licence screen. The editor itself refuses to draw a
- * brand mark unless it is licensed, so this is a convenience, not the enforcement.
+ * Pro: your own text or logo in the corner of exports instead of the Polishot watermark. The same control is in
+ * the Style tab's Brand mark section (the shared Inspector); this is the home for it in Settings. Free sees
+ * nothing here: the Inspector's locked row is the one place that explains it. The editor itself refuses to
+ * draw a brand mark unless it is licensed, so this is a convenience, not the enforcement.
  */
-export function BrandMarkSetting({ onUpgrade }: { onUpgrade: () => void }) {
+export function BrandMarkSetting() {
   const { ent, brandMark, setBrandMark, notify } = useApp();
   const [mode, setMode] = useState<Mode>(brandMark?.type ?? 'none');
   const [text, setText] = useState(brandMark?.type === 'text' ? brandMark.text : '');
@@ -61,17 +62,7 @@ export function BrandMarkSetting({ onUpgrade }: { onUpgrade: () => void }) {
     }
   };
 
-  if (!ent.pro) {
-    return (
-      <SettingGroup title="Brand mark">
-        <SettingRow title="Your own name or logo" description="Replace the watermark on your exports. Included with Pro.">
-          <button type="button" className="pe-btn" onClick={onUpgrade}>
-            Get Pro
-          </button>
-        </SettingRow>
-      </SettingGroup>
-    );
-  }
+  if (!ent.pro) return null;
 
   return (
     <SettingGroup title="Brand mark">

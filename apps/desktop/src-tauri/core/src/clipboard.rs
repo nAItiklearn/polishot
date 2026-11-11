@@ -191,25 +191,57 @@ impl Drop for Open {
     }
 }
 
-fn set_format(format: u32, data: &[u8]) -> Result<(), String> {
-    // SAFETY: allocates a movable block, copies `data` in while locked, then hands ownership to
-    // the clipboard on success. On failure the block is freed here.
-    unsafe {
-        let hmem = GlobalAlloc(GMEM_MOVEABLE, data.len().max(1))
-            .map_err(|_| "Not enough memory to copy the image.".to_string())?;
-        let ptr = GlobalLock(hmem) as *mut u8;
-        if ptr.is_null() {
-            let _ = GlobalFree(Some(hmem));
-            return Err("Could not lock clipboard memory.".to_string());
-        }
-        std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, data.len());
-        let _ = GlobalUnlock(hmem);
-        if SetClipboardData(format, Some(HANDLE(hmem.0))).is_err() {
-            let _ = GlobalFree(Some(hmem));
-            return Err("Could not write to the clipboard.".to_string());
+/// A block of global memory filled with one clipboard format, allocated and copied *before* the
+/// clipboard is opened. Copying tens of megabytes while holding the clipboard would keep every
+/// other app (and the user's paste) waiting; this leaves only the hand-over inside the lock.
+struct Staged {
+    format: u32,
+    hmem: Option<HGLOBAL>,
+}
+
+impl Staged {
+    fn new(format: u32, data: &[u8]) -> Result<Self, String> {
+        // SAFETY: allocates a movable block and copies `data` in while it is locked. The block is
+        // freed by `Drop` unless `put` hands it to the clipboard.
+        unsafe {
+            let hmem = GlobalAlloc(GMEM_MOVEABLE, data.len().max(1))
+                .map_err(|_| "Not enough memory to copy the image.".to_string())?;
+            let ptr = GlobalLock(hmem) as *mut u8;
+            if ptr.is_null() {
+                let _ = GlobalFree(Some(hmem));
+                return Err("Could not lock clipboard memory.".to_string());
+            }
+            std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, data.len());
+            let _ = GlobalUnlock(hmem);
+            Ok(Self {
+                format,
+                hmem: Some(hmem),
+            })
         }
     }
-    Ok(())
+
+    /// Give the block to the (open) clipboard. On success the clipboard owns it.
+    fn put(mut self) -> Result<(), String> {
+        let Some(hmem) = self.hmem.take() else {
+            return Ok(());
+        };
+        // SAFETY: the clipboard is open (callers hold `Open`) and `hmem` is a valid movable block.
+        if unsafe { SetClipboardData(self.format, Some(HANDLE(hmem.0))) }.is_err() {
+            // SAFETY: the clipboard did not take ownership.
+            let _ = unsafe { GlobalFree(Some(hmem)) };
+            return Err("Could not write to the clipboard.".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        if let Some(hmem) = self.hmem.take() {
+            // SAFETY: still ours: it was never handed to the clipboard.
+            let _ = unsafe { GlobalFree(Some(hmem)) };
+        }
+    }
 }
 
 fn read_format(format: u32) -> Option<Vec<u8>> {
@@ -242,20 +274,61 @@ fn available(format: u32) -> bool {
     unsafe { IsClipboardFormatAvailable(format) }.is_ok()
 }
 
+/// Above this many pixel bytes (64 MB, about a 4K screenshot and a half) the explicit CF_DIB is
+/// skipped: building a flattened 24-bit copy of a huge image costs time and memory, and Windows
+/// synthesises CF_DIB from CF_DIBV5 on request anyway.
+pub const MAX_EXPLICIT_DIB_BYTES: usize = 64 * 1024 * 1024;
+
+/// Whether an image of `rgba_len` pixel bytes gets an explicit, white-flattened CF_DIB.
+pub fn wants_explicit_dib(rgba_len: usize) -> bool {
+    rgba_len <= MAX_EXPLICIT_DIB_BYTES
+}
+
+/// The bitmap formats of an image, built before the clipboard is touched.
+pub struct BitmapFormats {
+    pub dibv5: Vec<u8>,
+    pub dib24: Option<Vec<u8>>,
+}
+
+/// Build CF_DIBV5 and (for images that are not huge) CF_DIB, on two threads at once.
+pub fn prepare_bitmaps(decoded: &imgio::Decoded) -> BitmapFormats {
+    let (w, h, rgba) = (decoded.width, decoded.height, &decoded.rgba[..]);
+    if !wants_explicit_dib(rgba.len()) {
+        return BitmapFormats {
+            dibv5: build_dibv5(w, h, rgba),
+            dib24: None,
+        };
+    }
+    std::thread::scope(|scope| {
+        let flat = scope.spawn(|| build_dib24(w, h, rgba));
+        let dibv5 = build_dibv5(w, h, rgba);
+        BitmapFormats {
+            dibv5,
+            // A panicked builder only costs the legacy format.
+            dib24: flat.join().ok(),
+        }
+    })
+}
+
 /// Put an image on the clipboard. `png` is the encoded image; `decoded` is the same image as RGBA.
+/// Everything is built and copied into global memory first, so the clipboard is held (empty, and
+/// locked against other apps) only for the few calls that hand the blocks over.
 pub fn set_image(hwnd: HWND, png: &[u8], decoded: &imgio::Decoded) -> Result<(), String> {
+    let bitmaps = prepare_bitmaps(decoded);
+    let mut staged = vec![
+        Staged::new(png_format(), png)?,
+        Staged::new(u32::from(CF_DIBV5.0), &bitmaps.dibv5)?,
+    ];
+    if let Some(dib) = &bitmaps.dib24 {
+        staged.push(Staged::new(u32::from(CF_DIB.0), dib)?);
+    }
+    drop(bitmaps);
     let _open = Open::new(hwnd)?;
     // SAFETY: clipboard is open.
     unsafe { EmptyClipboard() }.map_err(|_| "Could not clear the clipboard.".to_string())?;
-    set_format(png_format(), png)?;
-    set_format(
-        u32::from(CF_DIBV5.0),
-        &build_dibv5(decoded.width, decoded.height, &decoded.rgba),
-    )?;
-    set_format(
-        u32::from(CF_DIB.0),
-        &build_dib24(decoded.width, decoded.height, &decoded.rgba),
-    )?;
+    for block in staged {
+        block.put()?;
+    }
     Ok(())
 }
 
@@ -268,36 +341,55 @@ pub fn set_text(hwnd: HWND, text: &str) -> Result<(), String> {
         wide.extend_from_slice(&u.to_le_bytes());
     }
     wide.extend_from_slice(&[0, 0]);
+    let block = Staged::new(u32::from(CF_UNICODETEXT.0), &wide)?;
     let _open = Open::new(hwnd)?;
     // SAFETY: clipboard is open.
     unsafe { EmptyClipboard() }.map_err(|_| "Could not clear the clipboard.".to_string())?;
-    set_format(u32::from(CF_UNICODETEXT.0), &wide)
+    block.put()
+}
+
+/// Copy one format's bytes off the clipboard and release the clipboard again, so decoding a large
+/// image never happens while other apps are locked out.
+fn copy_format(hwnd: HWND, format: u32) -> Result<Option<Vec<u8>>, String> {
+    let _open = Open::new(hwnd)?;
+    Ok(if available(format) {
+        read_format(format)
+    } else {
+        None
+    })
+}
+
+#[derive(Clone, Copy)]
+enum Kind {
+    Png,
+    DibV5,
+    Dib,
 }
 
 /// Read an image from the clipboard, preferring PNG (lossless with alpha), then DIBV5, then DIB.
+/// The clipboard is open only while the bytes are copied out; decoding happens after it is closed.
 pub fn get_image(hwnd: HWND) -> Result<Option<imgio::Decoded>, String> {
-    let _open = Open::new(hwnd)?;
-    let png = png_format();
-    if available(png) {
-        if let Some(bytes) = read_format(png) {
-            if let Ok(d) = imgio::decode_limited(&bytes) {
-                return Ok(Some(d));
-            }
+    let mut last_error = None;
+    for (format, kind) in [
+        (png_format(), Kind::Png),
+        (u32::from(CF_DIBV5.0), Kind::DibV5),
+        (u32::from(CF_DIB.0), Kind::Dib),
+    ] {
+        let Some(bytes) = copy_format(hwnd, format)? else {
+            continue;
+        };
+        let decoded = match kind {
+            Kind::Png => imgio::decode_limited(&bytes),
+            Kind::DibV5 => dib_to_rgba(&bytes, true),
+            Kind::Dib => dib_to_rgba(&bytes, false),
+        };
+        match decoded {
+            Ok(d) => return Ok(Some(d)),
+            Err(e) => last_error = Some(e),
         }
     }
-    if available(u32::from(CF_DIBV5.0)) {
-        if let Some(bytes) = read_format(u32::from(CF_DIBV5.0)) {
-            if let Ok(d) = dib_to_rgba(&bytes, true) {
-                return Ok(Some(d));
-            }
-        }
-    }
-    if available(u32::from(CF_DIB.0)) {
-        if let Some(bytes) = read_format(u32::from(CF_DIB.0)) {
-            return dib_to_rgba(&bytes, false).map(Some);
-        }
-    }
-    Ok(None)
+    // Nothing usable: an error only if something was there but could not be read.
+    last_error.map_or(Ok(None), Err)
 }
 
 #[cfg(test)]
@@ -365,6 +457,28 @@ mod tests {
         bad[0] = 99; // unknown header size
         assert!(dib_to_bmp_file(&bad).is_none());
         assert!(dib_to_rgba(&[0; 8], true).is_err());
+    }
+
+    #[test]
+    fn the_explicit_dib_is_skipped_only_for_huge_images() {
+        assert!(wants_explicit_dib(0));
+        assert!(wants_explicit_dib(33 * 1024 * 1024)); // a 4K screenshot
+        assert!(wants_explicit_dib(MAX_EXPLICIT_DIB_BYTES));
+        assert!(!wants_explicit_dib(MAX_EXPLICIT_DIB_BYTES + 1));
+    }
+
+    #[test]
+    fn bitmaps_are_prepared_before_the_clipboard_is_opened() {
+        let (w, h, rgba) = sample();
+        let decoded = imgio::Decoded {
+            width: w,
+            height: h,
+            rgba: rgba.clone(),
+        };
+        let formats = prepare_bitmaps(&decoded);
+        // Built on two threads, but identical to the single-threaded builders.
+        assert_eq!(formats.dibv5, build_dibv5(w, h, &rgba));
+        assert_eq!(formats.dib24, Some(build_dib24(w, h, &rgba)));
     }
 
     #[test]

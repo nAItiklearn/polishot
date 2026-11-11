@@ -19,6 +19,11 @@ pub struct DeviceEntry {
     pub online: bool,
 }
 
+/// Most devices remembered at once. Anyone on the network can announce as many fake devices as
+/// they like; past this many, new ones are ignored (known ones still update) so the table, the
+/// device list and its events stay small.
+pub const MAX_PEERS: usize = 256;
+
 #[derive(Default)]
 pub struct PeerTable {
     peers: HashMap<DeviceId, Peer>,
@@ -28,7 +33,12 @@ impl PeerTable {
     /// Apply a discovery event; returns true if the table changed.
     pub fn apply(&mut self, ev: PeerEvent) -> bool {
         match ev {
-            PeerEvent::Found(p) => self.peers.insert(p.id, p.clone()).as_ref() != Some(&p),
+            PeerEvent::Found(p) => {
+                if !self.peers.contains_key(&p.id) && self.peers.len() >= MAX_PEERS {
+                    return false;
+                }
+                self.peers.insert(p.id, p.clone()).as_ref() != Some(&p)
+            }
             PeerEvent::Lost(id) => self.peers.remove(&id).is_some(),
         }
     }
@@ -164,6 +174,26 @@ mod tests {
         );
         assert_eq!(find_device_id("AAAAAAAAAAAAAAAA", &pairs, &t), None);
         assert_eq!(find_device_id("", &pairs, &t), None);
+    }
+
+    #[test]
+    fn a_flood_of_announcements_cannot_grow_the_table_without_bound() {
+        let mut t = PeerTable::default();
+        for i in 0..(MAX_PEERS + 50) {
+            let id = Identity::generate().id();
+            let changed = t.apply(PeerEvent::Found(peer(id, "Flood", 1000 + i as u16)));
+            assert_eq!(changed, i < MAX_PEERS, "peer {i}");
+        }
+        assert_eq!(t.devices(&[]).len(), MAX_PEERS);
+        // A device that is already known still updates, and can still leave.
+        let known = *t.peers.keys().next().unwrap();
+        assert!(t.apply(PeerEvent::Found(peer(known, "Renamed", 9))));
+        assert!(t.apply(PeerEvent::Lost(known)));
+        let fresh = Identity::generate().id();
+        assert!(
+            t.apply(PeerEvent::Found(peer(fresh, "Newcomer", 1))),
+            "a freed slot is usable again"
+        );
     }
 
     #[test]

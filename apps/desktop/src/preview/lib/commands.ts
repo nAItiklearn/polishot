@@ -8,6 +8,8 @@ import type { Tool } from '@polishot/editor';
 export type StaticActionId =
   | 'capture-region'
   | 'capture-window'
+  | 'capture-scroll'
+  | 'capture-gif'
   | 'open-file'
   | 'paste-image'
   | 'copy-image'
@@ -15,6 +17,9 @@ export type StaticActionId =
   | 'save'
   | 'save-as'
   | 'pin'
+  | 'send-phone'
+  | 'pair-phone'
+  | 'batch'
   | 'redact-blur'
   | 'redact-bars'
   | 'delete-selection'
@@ -54,6 +59,8 @@ export interface ActionDef {
 export const ACTIONS: readonly ActionDef[] = [
   { id: 'capture-region', label: 'Capture a region', group: 'Capture', shortcut: 'Ctrl+N', keywords: ['screenshot', 'snip', 'new'] },
   { id: 'capture-window', label: 'Capture a window', group: 'Capture', shortcut: 'Ctrl+Shift+N', keywords: ['screenshot', 'app'] },
+  { id: 'capture-scroll', label: 'Capture a scrolling window', group: 'Capture', shortcut: 'Ctrl+Shift+L', keywords: ['screenshot', 'long', 'page', 'stitch'] },
+  { id: 'capture-gif', label: 'Record a GIF', group: 'Capture', shortcut: 'Ctrl+Shift+G', keywords: ['animation', 'video', 'screen'] },
   { id: 'open-file', label: 'Open image', group: 'Capture', shortcut: 'Ctrl+O', keywords: ['file', 'browse', 'import'] },
   { id: 'paste-image', label: 'Paste image from clipboard', group: 'Capture', shortcut: 'Ctrl+V', keywords: ['clipboard'] },
 
@@ -62,6 +69,9 @@ export const ACTIONS: readonly ActionDef[] = [
   { id: 'save', label: 'Save to folder', group: 'Export', shortcut: 'Ctrl+S', keywords: ['export', 'write', 'file'] },
   { id: 'save-as', label: 'Save as', group: 'Export', shortcut: 'Ctrl+Shift+S', keywords: ['export', 'choose', 'location'] },
   { id: 'pin', label: 'Pin to screen', group: 'Export', shortcut: 'Ctrl+P', keywords: ['float', 'always on top'] },
+  { id: 'send-phone', label: 'Send to phone', group: 'Export', shortcut: 'Ctrl+Shift+D', keywords: ['android', 'quick send', 'wifi', 'transfer'] },
+  { id: 'pair-phone', label: 'Pair a phone', group: 'Export', shortcut: 'Ctrl+Shift+P', keywords: ['android', 'quick send', 'connect', 'device'] },
+  { id: 'batch', label: 'Batch beautify images', group: 'Export', shortcut: 'Ctrl+Shift+O', keywords: ['many', 'folder', 'bulk', 'several'] },
 
   { id: 'redact-blur', label: 'Blur sensitive data', group: 'Edit', shortcut: 'Ctrl+Shift+B', keywords: ['redact', 'privacy', 'email', 'card', 'token'] },
   { id: 'redact-bars', label: 'Cover sensitive data with bars', group: 'Edit', shortcut: 'Ctrl+Shift+X', keywords: ['redact', 'privacy', 'black'] },

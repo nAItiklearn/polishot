@@ -32,7 +32,9 @@ pub fn log(line: &str) {
     eprintln!("[polishot] {line}");
     if let Some(sink) = SINK.get() {
         if let Ok(mut f) = sink.lock() {
-            let _ = writeln!(f, "{} {line}", now_millis());
+            // One write per line: with two writes (stamp, then text) lines from different threads
+            // could interleave in the file.
+            let _ = f.write_all(format!("{} {line}\n", now_millis()).as_bytes());
         }
     }
 }

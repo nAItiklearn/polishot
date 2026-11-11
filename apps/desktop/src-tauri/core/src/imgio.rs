@@ -94,7 +94,8 @@ pub fn thumbnail_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, St
     if tw == width && th == height {
         return encode_png_fast(width, height, rgba);
     }
-    let src = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+    // Borrow the pixels: the buffer can be tens of megabytes and was copied just to be read.
+    let src = image::ImageBuffer::<image::Rgba<u8>, &[u8]>::from_raw(width, height, rgba)
         .ok_or("Internal error: pixel buffer has the wrong size.")?;
     let small = image::imageops::resize(&src, tw, th, image::imageops::FilterType::Triangle);
     encode_png_fast(tw, th, small.as_raw())

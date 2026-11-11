@@ -14,7 +14,38 @@ pub fn lowercase_ext(path: &Path) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
-/// First free `name.ext`, `name (2).ext`, ... inside `dir`.
+/// Claim the first free `name.ext`, `name (2).ext`, ... inside `dir` by creating it exclusively, and
+/// return the path with the open (empty) file. Checking whether a name is free and creating it
+/// are one step, so two saves at the same moment can never pick, and then overwrite, the same name.
+pub fn reserve_unique(dir: &Path, filename: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
+    use std::io::ErrorKind;
+    let try_create = |name: &str| -> std::io::Result<Option<(PathBuf, std::fs::File)>> {
+        let path = dir.join(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(f) => Ok(Some((path, f))),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(None),
+            Err(e) => Err(e),
+        }
+    };
+    if let Some(found) = try_create(filename)? {
+        return Ok(found);
+    }
+    let (stem, ext) = filename.rsplit_once('.').unwrap_or((filename, ""));
+    for n in 2..10_000 {
+        if let Some(found) = try_create(&format!("{stem} ({n}).{ext}"))? {
+            return Ok(found);
+        }
+    }
+    let name = format!("{stem} ({}).{ext}", crate::ids::new_id());
+    try_create(&name)?.ok_or_else(|| std::io::Error::from(ErrorKind::AlreadyExists))
+}
+
+/// First free `name.ext`, `name (2).ext`, ... inside `dir` according to `exists`. Pure naming
+/// only: it cannot reserve anything, so use [`reserve_unique`] when a file is about to be written.
 pub fn unique_path(dir: &Path, filename: &str, exists: impl Fn(&Path) -> bool) -> PathBuf {
     let first = dir.join(filename);
     if !exists(&first) {
@@ -58,16 +89,21 @@ pub fn save_export(folder: &Path, bytes: &[u8], filename: &str) -> Result<PathBu
     }
     std::fs::create_dir_all(folder)
         .map_err(|_| "The save folder could not be created.".to_string())?;
-    let target = unique_path(folder, &name, |p| p.exists());
+    // The name is claimed first (an empty file), then the real content replaces it atomically.
+    let (target, claimed) = reserve_unique(folder, &name)
+        .map_err(|_| "The file could not be created in the save folder.".to_string())?;
+    drop(claimed);
     if target.parent() != Some(folder) {
+        let _ = std::fs::remove_file(&target);
         return Err("The file name is not valid.".to_string());
     }
-    let tmp = target.with_extension(format!("{ext}.part"));
-    std::fs::write(&tmp, bytes).map_err(|_| "The file could not be written.".to_string())?;
-    std::fs::rename(&tmp, &target).map_err(|_| {
+    let tmp = folder.join(format!(".polishot-{}.part", crate::ids::new_id()));
+    let write = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, &target));
+    if write.is_err() {
         let _ = std::fs::remove_file(&tmp);
-        "The file could not be saved.".to_string()
-    })?;
+        let _ = std::fs::remove_file(&target);
+        return Err("The file could not be saved.".to_string());
+    }
     Ok(target)
 }
 
@@ -115,8 +151,14 @@ pub fn save_export_at(path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
     if bytes.len() > MAX_EXPORT_BYTES {
         return Err("That export is too large to save.".to_string());
     }
-    if path.as_os_str().len() > 1024 || !crate::opener::is_plain_absolute(path) {
+    if path.as_os_str().len() > 1024 {
         return Err("The save location is not valid.".to_string());
+    }
+    if !crate::opener::is_local_drive_path(path) {
+        return Err(
+            "Save to a drive on this PC (a network share must be mapped to a drive letter first)."
+                .to_string(),
+        );
     }
     let name = path
         .file_name()
@@ -172,6 +214,53 @@ mod tests {
         assert_eq!(c, dir.join("shot (3).png"));
         assert_eq!(std::fs::read(&a).unwrap(), PNG);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn simultaneous_saves_of_one_name_all_survive() {
+        let dir = temp();
+        let handles: Vec<_> = (0..16u8)
+            .map(|i| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    let mut png = PNG.to_vec();
+                    png.push(i);
+                    (save_export(&dir, &png, "shot.png").unwrap(), png)
+                })
+            })
+            .collect();
+        let saved: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let mut paths: Vec<_> = saved.iter().map(|(p, _)| p.clone()).collect();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), 16, "every save got its own name");
+        for (path, bytes) in &saved {
+            assert_eq!(
+                &std::fs::read(path).unwrap(),
+                bytes,
+                "{path:?} kept its own content"
+            );
+        }
+        let leftovers = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(leftovers, 16, "no temp or placeholder files remain");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reserved_names_are_claimed_exclusively() {
+        let dir = temp();
+        let (a, _fa) = reserve_unique(&dir, "Recording 1.gif").unwrap();
+        let (b, _fb) = reserve_unique(&dir, "Recording 1.gif").unwrap();
+        assert_eq!(a, dir.join("Recording 1.gif"));
+        assert_eq!(b, dir.join("Recording 1 (2).gif"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_as_refuses_network_locations() {
+        let png = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 1];
+        let e = save_export_at(Path::new(r"\\attacker\share\x.png"), &png).unwrap_err();
+        assert!(e.contains("drive on this PC"), "{e}");
     }
 
     #[test]

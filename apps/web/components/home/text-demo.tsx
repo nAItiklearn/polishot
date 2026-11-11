@@ -38,12 +38,13 @@ export function TextDemo() {
         <span className="demo-dot" />
         <span className="demo-dot" />
         <span className="demo-dot" />
-        <span className="ml-3 text-[13px] text-[#8a8378]">deploy-log.png</span>
-        <span className="ml-auto hidden text-[12px] text-[#a59d90] sm:inline">1600 × 900</span>
+        <span className="ml-3 text-[13px] text-[#6c665c]">deploy-log.png</span>
+        <span className="ml-auto hidden text-[12px] text-[#6c665c] sm:inline">1600 × 900</span>
       </div>
       <div
         className="relative bg-[#171513] px-6 py-6 font-mono text-[13.5px] leading-[1.9]"
         data-demo=""
+        data-illustration=""
       >
         {LINES.map((line, i) => (
           <p

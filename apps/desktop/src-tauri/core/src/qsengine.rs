@@ -12,8 +12,8 @@
 //! Events (to the main window): `qs:devices`, `qs:pair-code`, `qs:incoming`, `qs:received`.
 
 use std::collections::HashMap;
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -37,7 +37,17 @@ pub const EVENT_PAIR_CODE: &str = "qs:pair-code";
 pub const EVENT_INCOMING: &str = "qs:incoming";
 pub const EVENT_RECEIVED: &str = "qs:received";
 
-const MAX_CONCURRENT_CONNECTIONS: usize = 4;
+/// Connections served at once, and per remote address. A phone needs one (two while a retry
+/// overlaps a pairing screen); a LAN host holding sockets open must not starve it.
+const MAX_CONNECTIONS: usize = 4;
+const MAX_CONNECTIONS_PER_IP: usize = 2;
+/// A peer that connects and then says nothing is dropped after this long (the protocol's own
+/// handshake timeouts only start once the first byte has arrived).
+const PRE_HELLO_TIMEOUT: Duration = Duration::from_secs(3);
+/// The device list is announced to the UI at most this often, however busy mDNS is.
+const DEVICE_EVENT_INTERVAL: Duration = Duration::from_millis(250);
+/// Wait before looking for devices again after the mDNS browser stopped.
+const BROWSE_RESTART_DELAY: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a sender waits for us (the protocol's own limit is 60 s); answer before that.
 const INCOMING_DECISION: Duration = Duration::from_secs(55);
@@ -55,6 +65,136 @@ pub trait Host: Send + Sync + 'static {
     fn show_window(&self);
     /// Register decoded RGBA pixels as a new capture (history, OCR, preview protocol).
     fn register_image(&self, width: u32, height: u32, rgba: Vec<u8>) -> CaptureMeta;
+    /// A non-fatal problem the user should read (shown with the other startup warnings).
+    fn warn(&self, message: &str);
+}
+
+/// Whether a discovered address may be dialled. mDNS answers come from anyone on the network, so
+/// an advertisement must not be able to point this PC at the internet or at some other internal
+/// host: only private IPv4 ranges (10/8, 172.16/12, 192.168/16), link-local 169.254/16 and IPv6
+/// unique-local fc00::/7 qualify. Loopback is allowed only when `allow_loopback` is set (tests).
+pub fn is_lan_addr(ip: IpAddr, allow_loopback: bool) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_private() || (o[0] == 169 && o[1] == 254) || (allow_loopback && v4.is_loopback())
+        }
+        IpAddr::V6(v6) => {
+            // An IPv4-mapped address is judged as the IPv4 address it wraps.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_lan_addr(IpAddr::V4(v4), allow_loopback);
+            }
+            (v6.segments()[0] & 0xfe00) == 0xfc00 || (allow_loopback && v6.is_loopback())
+        }
+    }
+}
+
+/// True when `ip` lies inside `net`/`prefix` (same address family).
+pub fn in_subnet(ip: IpAddr, net: IpAddr, prefix: u8) -> bool {
+    match (ip, net) {
+        (IpAddr::V4(a), IpAddr::V4(b)) => {
+            let prefix = u32::from(prefix.min(32));
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u32::MAX << (32 - prefix)
+            };
+            u32::from(a) & mask == u32::from(b) & mask
+        }
+        (IpAddr::V6(a), IpAddr::V6(b)) => {
+            let prefix = u32::from(prefix.min(128));
+            let mask = if prefix == 0 {
+                0
+            } else {
+                u128::MAX << (128 - prefix)
+            };
+            u128::from(a) & mask == u128::from(b) & mask
+        }
+        _ => false,
+    }
+}
+
+/// The addresses worth dialling: LAN-range addresses that are on one of this PC's own subnets
+/// (`local` lists `(address, prefix length)` per network adapter). When the adapter list is
+/// unknown (empty) only the range check applies.
+pub fn dialable(
+    addrs: &[SocketAddr],
+    local: &[(IpAddr, u8)],
+    allow_loopback: bool,
+) -> Vec<SocketAddr> {
+    addrs
+        .iter()
+        .copied()
+        .filter(|a| is_lan_addr(a.ip(), allow_loopback))
+        .filter(|a| {
+            local.is_empty()
+                || (allow_loopback && a.ip().is_loopback())
+                || local
+                    .iter()
+                    .any(|(net, prefix)| in_subnet(a.ip(), *net, *prefix))
+        })
+        .collect()
+}
+
+/// Limits simultaneous connections, in total and per remote address.
+pub struct ConnLimiter {
+    max_total: usize,
+    max_per_ip: usize,
+    state: Mutex<(usize, HashMap<IpAddr, usize>)>,
+}
+
+/// Holds one connection slot; the slot is returned when this is dropped.
+pub struct ConnPermit {
+    limiter: Arc<ConnLimiter>,
+    ip: IpAddr,
+}
+
+impl ConnLimiter {
+    pub fn new(max_total: usize, max_per_ip: usize) -> Arc<Self> {
+        Arc::new(Self {
+            max_total,
+            max_per_ip,
+            state: Mutex::new((0, HashMap::new())),
+        })
+    }
+
+    /// A slot for a connection from `ip`, or `None` when a limit is reached.
+    pub fn acquire(self: &Arc<Self>, ip: IpAddr) -> Option<ConnPermit> {
+        let mut g = self.state.lock().ok()?;
+        let mine = g.1.get(&ip).copied().unwrap_or(0);
+        if g.0 >= self.max_total || mine >= self.max_per_ip {
+            return None;
+        }
+        g.0 += 1;
+        g.1.insert(ip, mine + 1);
+        Some(ConnPermit {
+            limiter: self.clone(),
+            ip,
+        })
+    }
+
+    pub fn active(&self) -> usize {
+        self.state.lock().map_or(0, |g| g.0)
+    }
+}
+
+impl Drop for ConnPermit {
+    fn drop(&mut self) {
+        if let Ok(mut g) = self.limiter.state.lock() {
+            g.0 = g.0.saturating_sub(1);
+            if let Some(n) = g.1.get_mut(&self.ip) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    g.1.remove(&self.ip);
+                }
+            }
+        }
+    }
+}
+
+/// Addresses and prefix lengths of this PC's network adapters (empty if they cannot be read).
+pub fn local_subnets() -> Vec<(IpAddr, u8)> {
+    crate::winutil::local_subnets()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -109,11 +249,14 @@ pub struct QuickSend {
     pending: Mutex<Option<Pending>>,
     incoming: Mutex<HashMap<u64, Sender<bool>>>,
     next_request: AtomicU64,
-    active_connections: AtomicUsize,
+    conns: Arc<ConnLimiter>,
+    /// Set once the pairing prompt has brought the window forward during this pairing window.
+    window_shown: AtomicBool,
     stopped: AtomicBool,
     /// Port of the listener once it runs (0 before).
     port: AtomicU16,
-    /// Whether mDNS advertising is wanted at all (off in tests).
+    /// Whether mDNS advertising is wanted at all (off in tests). Production mode (this set) also
+    /// restricts dialling to LAN addresses on this PC's own subnets.
     discovery: bool,
     // Dropping the advertiser unregisters the mDNS service.
     advertiser: Mutex<Option<Advertiser>>,
@@ -161,7 +304,10 @@ impl QuickSend {
         name: String,
         discovery: bool,
     ) -> Result<Arc<QuickSend>, String> {
-        let identity = store.load_or_create_identity()?;
+        let (identity, notice) = store.load_or_create_identity_noted()?;
+        if let Some(notice) = notice {
+            host.warn(&notice);
+        }
         let pairs = store.load_pairs();
         Ok(Arc::new(QuickSend {
             host,
@@ -175,7 +321,8 @@ impl QuickSend {
             pending: Mutex::new(None),
             incoming: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
-            active_connections: AtomicUsize::new(0),
+            conns: ConnLimiter::new(MAX_CONNECTIONS, MAX_CONNECTIONS_PER_IP),
+            window_shown: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             port: AtomicU16::new(0),
             discovery,
@@ -198,7 +345,7 @@ impl QuickSend {
         q.serve_on(listener)?;
         q.refresh_advertising();
         let browse = q.clone();
-        std::thread::spawn(move || browse.browse_loop(&browser));
+        std::thread::spawn(move || browse.browse_loop(browser));
         tlog!("quick send listening");
         Ok(q)
     }
@@ -235,27 +382,42 @@ impl QuickSend {
 
     // ---- discovery ----------------------------------------------------------------------------
 
-    fn browse_loop(&self, browser: &Browser) {
+    /// Follow mDNS for the life of the engine: events update the device table, the UI hears about
+    /// changes at most every 250 ms, and a browser that stops (network change, sleep/resume) is
+    /// started again instead of leaving the device list frozen.
+    fn browse_loop(&self, first: Browser) {
+        let mut browser = Some(first);
+        let mut dirty = false;
+        let mut last_emit = Instant::now() - DEVICE_EVENT_INTERVAL;
         while !self.stopped.load(Ordering::Relaxed) {
-            match browser.next_event(Duration::from_secs(1)) {
-                Ok(Some(ev)) => {
-                    self.apply_peer_event(ev);
+            match browser.as_ref() {
+                Some(b) => match b.next_event(Duration::from_millis(500)) {
+                    Ok(Some(ev)) => dirty |= self.apply_peer_event(ev),
+                    Ok(None) => {}
+                    Err(_) => {
+                        tlog!("quick send discovery stopped; restarting it");
+                        browser = None;
+                    }
+                },
+                None => {
+                    std::thread::sleep(BROWSE_RESTART_DELAY);
+                    browser = Browser::start(self.identity.id()).ok();
                 }
-                Ok(None) => {}
-                Err(_) => break,
+            }
+            if dirty && last_emit.elapsed() >= DEVICE_EVENT_INTERVAL {
+                dirty = false;
+                last_emit = Instant::now();
+                self.emit(EVENT_DEVICES, ());
             }
             // The pairing window may have run out since the last tick.
             self.refresh_advertising();
         }
     }
 
-    /// Apply a discovery event; tells the UI when the device list changed.
+    /// Apply a discovery event to the device table. Returns whether the list changed; the caller
+    /// decides when to tell the UI (see `browse_loop`).
     pub fn apply_peer_event(&self, ev: PeerEvent) -> bool {
-        let changed = self.table.lock().is_ok_and(|mut t| t.apply(ev));
-        if changed {
-            self.emit(EVENT_DEVICES, ());
-        }
-        changed
+        self.table.lock().is_ok_and(|mut t| t.apply(ev))
     }
 
     /// Advertise only while somebody can usefully reach this PC: a device is paired (it may send
@@ -299,6 +461,14 @@ impl QuickSend {
         if let Ok(mut g) = self.pairing_open_until.lock() {
             *g = open.then(|| Instant::now() + PAIRING_WINDOW);
         }
+        self.window_shown.store(false, Ordering::SeqCst);
+        if !open {
+            // Closing the dialog abandons a pairing nobody answered (dropping it closes the
+            // connection), so a later attempt is not blocked by it.
+            if let Ok(mut p) = self.pending.lock() {
+                *p = None;
+            }
+        }
         self.refresh_advertising();
     }
 
@@ -311,26 +481,48 @@ impl QuickSend {
     // ---- inbound ------------------------------------------------------------------------------
 
     fn accept_loop(self: &Arc<Self>, listener: &TcpListener) {
+        let mut failures = 0u32;
         for conn in listener.incoming() {
             if self.stopped.load(Ordering::Relaxed) {
                 break;
             }
-            let Ok(stream) = conn else { continue };
-            if self.active_connections.fetch_add(1, Ordering::SeqCst) >= MAX_CONCURRENT_CONNECTIONS
-            {
-                self.active_connections.fetch_sub(1, Ordering::SeqCst);
-                continue; // drop the connection: too many at once
-            }
+            let stream = match conn {
+                Ok(s) => {
+                    failures = 0;
+                    s
+                }
+                Err(_) => {
+                    // Out of handles or a dying adapter: do not spin on the error.
+                    failures = failures.saturating_add(1);
+                    std::thread::sleep(Duration::from_millis(50 << failures.min(5)));
+                    continue;
+                }
+            };
+            let Ok(peer) = stream.peer_addr() else {
+                continue;
+            };
+            // Too many at once, or too many from one address: drop the connection unread.
+            let Some(permit) = self.conns.acquire(peer.ip()) else {
+                continue;
+            };
             let me = self.clone();
             std::thread::spawn(move || {
                 me.handle(stream);
-                me.active_connections.fetch_sub(1, Ordering::SeqCst);
+                drop(permit);
             });
         }
     }
 
     fn handle(&self, stream: TcpStream) {
         let _ = stream.set_nodelay(true);
+        // A connection that never sends its HELLO is dropped quickly; once the first byte is in,
+        // the protocol's own per-frame deadlines take over.
+        let _ = stream.set_read_timeout(Some(PRE_HELLO_TIMEOUT));
+        let mut first = [0u8; 1];
+        if !matches!(stream.peek(&mut first), Ok(n) if n > 0) {
+            return;
+        }
+        let _ = stream.set_read_timeout(None);
         let pairs = self.pairs.read().map(|p| p.clone()).unwrap_or_default();
         let sc = ServeConfig {
             identity: &self.identity,
@@ -409,6 +601,17 @@ impl QuickSend {
 
     // ---- pairing ------------------------------------------------------------------------------
 
+    /// Is a pairing waiting for the user's answer that has not yet expired?
+    fn pending_is_fresh(slot: &Option<Pending>) -> bool {
+        slot.as_ref()
+            .is_some_and(|p| p.created.elapsed() < PENDING_PAIRING_TTL)
+    }
+
+    /// An inbound pairing reached the point where the user must compare codes. Only one pairing
+    /// can wait at a time: while a fresh one is waiting, a newcomer is dropped (its connection
+    /// closes, so the other phone sees a failure) and the code on screen stays valid. Otherwise
+    /// a second phone could replace the pairing under the user's finger between reading the
+    /// code and pressing Yes.
     fn set_pending(&self, pairing: PendingPairing<TcpStream>, role: PairRole) {
         let code = PairCode {
             sas: group_sas(pairing.sas()),
@@ -416,18 +619,38 @@ impl QuickSend {
             peer_id: pairing.peer_id().to_string(),
             role,
         };
-        if let Ok(mut p) = self.pending.lock() {
-            *p = Some(Pending {
+        {
+            let Ok(mut slot) = self.pending.lock() else {
+                return;
+            };
+            if Self::pending_is_fresh(&slot) {
+                tlog!("quick send: pairing refused, another one is waiting for an answer");
+                return;
+            }
+            *slot = Some(Pending {
                 pairing,
                 created: Instant::now(),
             });
         }
-        self.host.show_window();
+        // Bring the window forward once per pairing window, not once per attempt.
+        if !self.window_shown.swap(true, Ordering::SeqCst) {
+            self.host.show_window();
+        }
         self.emit(EVENT_PAIR_CODE, code);
     }
 
     /// Dial a visible device and start pairing as the initiator. Blocks until the code is known.
     pub fn pair_start(&self, device_id: &str) -> Result<PairCode, String> {
+        if self
+            .pending
+            .lock()
+            .is_ok_and(|slot| Self::pending_is_fresh(&slot))
+        {
+            return Err(
+                "A pairing is already waiting for your answer. Finish it or close the dialog first."
+                    .to_string(),
+            );
+        }
         let (id, addrs) = {
             let pairs = self.pairs.read().map(|p| p.clone()).unwrap_or_default();
             let table = self
@@ -441,7 +664,7 @@ impl QuickSend {
                 .ok_or("That device is not visible on the network.")?;
             (id, addrs)
         };
-        let stream = connect(&addrs)?;
+        let stream = self.connect(&addrs)?;
         let pairing =
             pair_initiator(stream, &self.identity, &self.name).map_err(|e| e.to_string())?;
         if pairing.peer_id() != id {
@@ -453,8 +676,16 @@ impl QuickSend {
             peer_id: pairing.peer_id().to_string(),
             role: PairRole::Initiator,
         };
-        if let Ok(mut p) = self.pending.lock() {
-            *p = Some(Pending {
+        {
+            let mut slot = self
+                .pending
+                .lock()
+                .map_err(|_| "Quick send is busy.".to_string())?;
+            if Self::pending_is_fresh(&slot) {
+                // An inbound pairing took the slot while we were dialling.
+                return Err("Another pairing started at the same time. Try again.".to_string());
+            }
+            *slot = Some(Pending {
                 pairing,
                 created: Instant::now(),
             });
@@ -464,14 +695,39 @@ impl QuickSend {
     }
 
     /// Finish the pending pairing with the user's answer to "do both screens show this code?".
-    pub fn pair_confirm(&self, accepted: bool) -> Result<DeviceEntry, String> {
-        let pending = self
-            .pending
-            .lock()
-            .map_err(|_| "Quick send is busy.".to_string())?
-            .take()
-            .filter(|p| p.created.elapsed() < PENDING_PAIRING_TTL)
-            .ok_or("There is no pairing in progress. Start again.")?;
+    ///
+    /// The answer is bound to the pairing the user was looking at: `peer_id` and `sas` must be the
+    /// ones shown in the dialog (`qs:pair-code`). If another pairing has replaced it, or the answer came
+    /// from a stale or forged request, nothing is confirmed and the pending pairing is untouched.
+    pub fn pair_confirm(
+        &self,
+        peer_id: &str,
+        sas: &str,
+        accepted: bool,
+    ) -> Result<DeviceEntry, String> {
+        let pending = {
+            let mut slot = self
+                .pending
+                .lock()
+                .map_err(|_| "Quick send is busy.".to_string())?;
+            let Some(p) = slot
+                .as_ref()
+                .filter(|p| p.created.elapsed() < PENDING_PAIRING_TTL)
+            else {
+                *slot = None;
+                return Err("There is no pairing in progress. Start again.".to_string());
+            };
+            let same_peer = p.pairing.peer_id().to_string() == peer_id.to_ascii_uppercase();
+            let same_code = compact_sas(&group_sas(p.pairing.sas())) == compact_sas(sas);
+            if !same_peer || !same_code {
+                return Err(
+                    "That is not the pairing on screen any more. Close the dialog and start again."
+                        .to_string(),
+                );
+            }
+            slot.take()
+        }
+        .ok_or("There is no pairing in progress. Start again.")?;
         let record = pending
             .pairing
             .confirm(accepted)
@@ -542,7 +798,7 @@ impl QuickSend {
                 .ok_or("That device is not on this network right now.")?;
             (record, addrs)
         };
-        let stream = connect(&addrs)?;
+        let stream = self.connect(&addrs)?;
         send_file(
             stream,
             &self.identity,
@@ -554,19 +810,39 @@ impl QuickSend {
     }
 }
 
-fn connect(addrs: &[SocketAddr]) -> Result<TcpStream, String> {
-    for addr in addrs {
-        if let Ok(s) = TcpStream::connect_timeout(addr, CONNECT_TIMEOUT) {
-            let _ = s.set_nodelay(true);
-            return Ok(s);
+impl QuickSend {
+    /// Dial the first reachable address. Only LAN addresses on this PC's own subnets are tried in
+    /// production (see `dialable`); discovery data is not trusted to pick the target.
+    fn connect(&self, addrs: &[SocketAddr]) -> Result<TcpStream, String> {
+        let local = if self.discovery {
+            local_subnets()
+        } else {
+            Vec::new()
+        };
+        let candidates = dialable(addrs, &local, !self.discovery);
+        for addr in &candidates {
+            if let Ok(s) = TcpStream::connect_timeout(addr, CONNECT_TIMEOUT) {
+                let _ = s.set_nodelay(true);
+                return Ok(s);
+            }
         }
+        Err(
+            "Could not reach that device. Check that both are on the same Wi-Fi network."
+                .to_string(),
+        )
     }
-    Err("Could not reach that device. Check that both are on the same Wi-Fi network.".to_string())
+}
+
+/// `"042 917"` and `"042917"` compare equal.
+fn compact_sas(sas: &str) -> String {
+    sas.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::io::Read;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::sync::atomic::AtomicUsize;
     use std::sync::mpsc::{channel, Receiver};
 
     use polishot_quicksend::discovery::Peer;
@@ -579,6 +855,7 @@ mod tests {
         events: Mutex<Sender<(String, serde_json::Value)>>,
         shown: AtomicUsize,
         images: Mutex<Vec<(u32, u32)>>,
+        warnings: Mutex<Vec<String>>,
     }
 
     impl Host for TestHost {
@@ -591,6 +868,9 @@ mod tests {
         }
         fn show_window(&self) {
             self.shown.fetch_add(1, Ordering::SeqCst);
+        }
+        fn warn(&self, message: &str) {
+            self.warnings.lock().unwrap().push(message.to_string());
         }
         fn register_image(&self, width: u32, height: u32, _rgba: Vec<u8>) -> CaptureMeta {
             self.images.lock().unwrap().push((width, height));
@@ -626,6 +906,7 @@ mod tests {
             events: Mutex::new(tx),
             shown: AtomicUsize::new(0),
             images: Mutex::new(Vec::new()),
+            warnings: Mutex::new(Vec::new()),
         });
         let q = QuickSend::new(host.clone(), QsStore::new(&dir), name.to_string(), false).unwrap();
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -686,13 +967,31 @@ mod tests {
         assert_eq!(seen_by_b["peerId"], a.q.id_text());
         // Both users confirm; each side waits for the other, so run them together.
         let (qa, qb) = (a.q.clone(), b.q.clone());
-        let tb = std::thread::spawn(move || qb.pair_confirm(true));
-        let ra = qa.pair_confirm(true).expect("initiator confirm");
+        let (b_sees_peer, b_sees_sas) = (
+            seen_by_b["peerId"].as_str().unwrap().to_string(),
+            seen_by_b["sas"].as_str().unwrap().to_string(),
+        );
+        let tb = std::thread::spawn(move || qb.pair_confirm(&b_sees_peer, &b_sees_sas, true));
+        let ra = qa
+            .pair_confirm(&code.peer_id, &code.sas, true)
+            .expect("initiator confirm");
         let rb = tb.join().unwrap().expect("responder confirm");
         assert!(ra.paired && rb.paired);
         assert_eq!(ra.id, b.q.id_text());
         assert_eq!(rb.id, a.q.id_text());
         code.sas
+    }
+
+    /// The peer id and code the pending pairing on `n` shows.
+    fn wait_pending(n: &Node) -> (String, String) {
+        let t = Instant::now();
+        loop {
+            if let Some(p) = n.q.pending.lock().unwrap().as_ref() {
+                return (p.pairing.peer_id().to_string(), group_sas(p.pairing.sas()));
+            }
+            assert!(t.elapsed() < Duration::from_secs(10), "no pending pairing");
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]
@@ -846,12 +1145,13 @@ mod tests {
         let b = node("Studio PC");
         introduce(&a, &b);
         b.q.set_pairing_open(true);
-        a.q.pair_start(&b.q.id_text()).unwrap();
+        let code = a.q.pair_start(&b.q.id_text()).unwrap();
         wait_for(&b, EVENT_PAIR_CODE);
         let qb = b.q.clone();
-        let tb = std::thread::spawn(move || qb.pair_confirm(true));
+        let seen = wait_pending(&b);
+        let tb = std::thread::spawn(move || qb.pair_confirm(&seen.0, &seen.1, true));
         // The initiator says the codes do not match.
-        assert!(a.q.pair_confirm(false).is_err());
+        assert!(a.q.pair_confirm(&code.peer_id, &code.sas, false).is_err());
         assert!(tb.join().unwrap().is_err());
         assert!(QsStore::new(&a.dir).load_pairs().is_empty());
         assert!(QsStore::new(&b.dir).load_pairs().is_empty());
@@ -860,7 +1160,10 @@ mod tests {
     #[test]
     fn confirming_without_a_pairing_in_progress_is_an_error() {
         let a = node("Phone");
-        assert!(a.q.pair_confirm(true).is_err());
+        assert!(a
+            .q
+            .pair_confirm("AAAAAAAAAAAAAAAA", "000 000", true)
+            .is_err());
     }
 
     #[test]
@@ -909,5 +1212,290 @@ mod tests {
         assert!(a.q.pairing_open());
         a.q.set_pairing_open(false);
         assert!(!a.q.pairing_open());
+    }
+    #[test]
+    fn a_confirmation_must_name_the_pairing_on_screen() {
+        let a = node("Phone");
+        let b = node("Studio PC");
+        introduce(&a, &b);
+        b.q.set_pairing_open(true);
+        let code = a.q.pair_start(&b.q.id_text()).unwrap();
+        let seen = wait_pending(&b);
+        // Wrong peer, wrong code, and both wrong: refused, and the pairing stays pending.
+        let other = Identity::generate().id().to_string();
+        for (peer, sas) in [
+            (other.as_str(), seen.1.as_str()),
+            (seen.0.as_str(), "000 000"),
+            (other.as_str(), "000 000"),
+        ] {
+            let e = b.q.pair_confirm(peer, sas, true).unwrap_err();
+            assert!(e.contains("not the pairing on screen"), "{e}");
+        }
+        assert!(
+            b.q.pending.lock().unwrap().is_some(),
+            "still waiting for the right answer"
+        );
+        // The right answer (any spelling of the code, any case of the id) pairs.
+        let qb = b.q.clone();
+        let (peer_lower, compact) = (seen.0.to_ascii_lowercase(), seen.1.replace(' ', ""));
+        let tb = std::thread::spawn(move || qb.pair_confirm(&peer_lower, &compact, true));
+        a.q.pair_confirm(&code.peer_id, &code.sas, true).unwrap();
+        tb.join().unwrap().unwrap();
+        assert_eq!(QsStore::new(&b.dir).load_pairs().len(), 1);
+    }
+
+    #[test]
+    fn a_second_pairing_cannot_replace_one_waiting_for_an_answer() {
+        let a = node("Phone");
+        let c = node("Other phone");
+        let b = node("Studio PC");
+        introduce(&a, &b);
+        introduce(&c, &b);
+        b.q.set_pairing_open(true);
+        let first = a.q.pair_start(&b.q.id_text()).unwrap();
+        let shown = wait_pending(&b);
+        assert_eq!(shown.1, first.sas);
+        let shown_before = b.host.shown.load(Ordering::SeqCst);
+
+        // A second phone tries while the first code is on screen: its dial succeeds at the
+        // protocol level, but it never gets to replace the pending pairing.
+        let _ = c.q.pair_start(&b.q.id_text());
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(wait_pending(&b), shown, "the code on screen did not change");
+        assert_eq!(
+            b.host.shown.load(Ordering::SeqCst),
+            shown_before,
+            "no second window pop-up"
+        );
+        // And this PC refuses to start a pairing of its own over a waiting one.
+        introduce(&b, &c);
+        let e = b.q.pair_start(&c.q.id_text()).unwrap_err();
+        assert!(e.contains("already waiting"), "{e}");
+        // The first pairing still completes.
+        let qb = b.q.clone();
+        let tb = std::thread::spawn(move || qb.pair_confirm(&shown.0, &shown.1, true));
+        a.q.pair_confirm(&first.peer_id, &first.sas, true).unwrap();
+        tb.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn closing_the_pairing_dialog_abandons_a_waiting_pairing() {
+        let a = node("Phone");
+        let b = node("Studio PC");
+        introduce(&a, &b);
+        b.q.set_pairing_open(true);
+        let code = a.q.pair_start(&b.q.id_text()).unwrap();
+        wait_pending(&b);
+        b.q.set_pairing_open(false);
+        assert!(b.q.pending.lock().unwrap().is_none());
+        assert!(b.q.pair_confirm(&code.peer_id, &code.sas, true).is_err());
+    }
+
+    #[test]
+    fn the_window_comes_forward_once_per_pairing_window() {
+        let a = node("Phone");
+        let b = node("Studio PC");
+        introduce(&a, &b);
+        b.q.set_pairing_open(true);
+        a.q.pair_start(&b.q.id_text()).unwrap();
+        wait_pending(&b);
+        assert_eq!(b.host.shown.load(Ordering::SeqCst), 1);
+        b.q.set_pairing_open(false);
+        b.q.set_pairing_open(true);
+        let c = node("Other phone");
+        introduce(&c, &b);
+        c.q.pair_start(&b.q.id_text()).unwrap();
+        wait_pending(&b);
+        assert_eq!(
+            b.host.shown.load(Ordering::SeqCst),
+            2,
+            "a new pairing window may show it again"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_identity_is_reported_to_the_user() {
+        let dir = std::env::temp_dir().join(format!("ps-qs-{}", crate::ids::new_id()));
+        let (tx, _events) = channel();
+        let host = Arc::new(TestHost {
+            events: Mutex::new(tx),
+            shown: AtomicUsize::new(0),
+            images: Mutex::new(Vec::new()),
+            warnings: Mutex::new(Vec::new()),
+        });
+        QuickSend::new(host.clone(), QsStore::new(&dir), "PC".into(), false).unwrap();
+        assert!(
+            host.warnings.lock().unwrap().is_empty(),
+            "a first run is silent"
+        );
+        std::fs::write(dir.join("identity.bin"), b"not from this account").unwrap();
+        QuickSend::new(host.clone(), QsStore::new(&dir), "PC".into(), false).unwrap();
+        let w = host.warnings.lock().unwrap().clone();
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("Pair your phones again"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_silent_connection_is_dropped_quickly_and_its_slot_returned() {
+        let b = node("Studio PC");
+        let mut idle = TcpStream::connect(("127.0.0.1", b.port)).unwrap();
+        idle.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let t = Instant::now();
+        let mut buf = [0u8; 8];
+        // The server closes without sending anything: a clean EOF (or a reset), not our timeout.
+        let n = idle.read(&mut buf).unwrap_or(0);
+        assert_eq!(n, 0);
+        assert!(
+            t.elapsed() < Duration::from_secs(8),
+            "dropped after {:?}",
+            t.elapsed()
+        );
+        assert!(
+            t.elapsed() >= Duration::from_secs(2),
+            "not before the pre-HELLO timeout"
+        );
+        let t = Instant::now();
+        while b.q.conns.active() > 0 {
+            assert!(t.elapsed() < Duration::from_secs(5), "slot never returned");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn one_address_cannot_hold_more_than_its_share_of_connections() {
+        let l = ConnLimiter::new(4, 2);
+        let a: IpAddr = Ipv4Addr::new(192, 168, 1, 10).into();
+        let b: IpAddr = Ipv4Addr::new(192, 168, 1, 11).into();
+        let c: IpAddr = Ipv4Addr::new(192, 168, 1, 12).into();
+        let a1 = l.acquire(a).unwrap();
+        let a2 = l.acquire(a).unwrap();
+        assert!(l.acquire(a).is_none(), "third from the same address");
+        let b1 = l.acquire(b).unwrap();
+        let b2 = l.acquire(b).unwrap();
+        assert!(l.acquire(c).is_none(), "total limit");
+        assert_eq!(l.active(), 4);
+        drop(a1);
+        assert_eq!(l.active(), 3);
+        let c1 = l.acquire(c).expect("a freed slot is usable");
+        assert!(l.acquire(a).is_none(), "the total limit is back at 4");
+        drop((a2, b1, b2, c1));
+        assert_eq!(l.active(), 0);
+        assert!(
+            l.state.lock().unwrap().1.is_empty(),
+            "no per-address residue"
+        );
+    }
+
+    #[test]
+    fn only_lan_addresses_may_be_dialled() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        for ok in [
+            "10.0.0.5",
+            "10.255.255.254",
+            "172.16.0.1",
+            "172.31.255.1",
+            "192.168.1.20",
+            "169.254.10.10",
+            "fd12:3456:789a::1",
+            "fc00::1",
+            "::ffff:192.168.1.20",
+        ] {
+            assert!(is_lan_addr(ip(ok), false), "{ok}");
+        }
+        for bad in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "172.15.255.255",
+            "172.32.0.1",
+            "192.169.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "0.0.0.0",
+            "224.0.0.251",
+            "255.255.255.255",
+            "::1",
+            "2001:4860:4860::8888",
+            "fe80::1",
+            "::ffff:8.8.8.8",
+            "::",
+        ] {
+            assert!(!is_lan_addr(ip(bad), false), "{bad}");
+        }
+        assert!(is_lan_addr(ip("127.0.0.1"), true));
+        assert!(is_lan_addr(ip("::1"), true));
+        assert!(
+            !is_lan_addr(ip("8.8.8.8"), true),
+            "tests may use loopback, never the internet"
+        );
+    }
+
+    #[test]
+    fn subnet_membership() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        assert!(in_subnet(ip("192.168.1.77"), ip("192.168.1.20"), 24));
+        assert!(!in_subnet(ip("192.168.2.77"), ip("192.168.1.20"), 24));
+        assert!(in_subnet(ip("192.168.2.77"), ip("192.168.1.20"), 16));
+        assert!(in_subnet(ip("10.9.9.9"), ip("10.0.0.1"), 8));
+        assert!(in_subnet(ip("1.2.3.4"), ip("9.9.9.9"), 0));
+        assert!(in_subnet(ip("192.168.1.20"), ip("192.168.1.20"), 32));
+        assert!(!in_subnet(ip("192.168.1.21"), ip("192.168.1.20"), 32));
+        assert!(in_subnet(ip("fd12::5"), ip("fd12::1"), 64));
+        assert!(!in_subnet(ip("fd13::5"), ip("fd12::1"), 64));
+        assert!(
+            !in_subnet(ip("192.168.1.1"), ip("fd12::1"), 8),
+            "families never mix"
+        );
+        // A silly prefix is clamped to the address length instead of overflowing the shift.
+        assert!(in_subnet(ip("192.168.1.2"), ip("192.168.1.2"), 200));
+        assert!(!in_subnet(ip("192.168.1.1"), ip("192.168.1.2"), 200));
+    }
+
+    #[test]
+    fn dialling_is_limited_to_lan_addresses_on_a_local_subnet() {
+        let sock = |s: &str| SocketAddr::new(s.parse().unwrap(), 4000);
+        let local = [
+            ("192.168.1.20".parse::<IpAddr>().unwrap(), 24u8),
+            ("fd12::20".parse::<IpAddr>().unwrap(), 64u8),
+        ];
+        let offered = [
+            sock("8.8.8.8"),      // the internet
+            sock("10.0.0.7"),     // private, but another network
+            sock("192.168.1.55"), // on our subnet
+            sock("fd12::99"),     // on our IPv6 subnet
+            sock("169.254.1.1"),  // link-local, not on a subnet we are on
+            sock("127.0.0.1"),    // this PC
+        ];
+        assert_eq!(
+            dialable(&offered, &local, false),
+            [sock("192.168.1.55"), sock("fd12::99")]
+        );
+        // If the adapter list could not be read, the range check alone applies.
+        assert_eq!(
+            dialable(&offered, &[], false),
+            [
+                sock("10.0.0.7"),
+                sock("192.168.1.55"),
+                sock("fd12::99"),
+                sock("169.254.1.1")
+            ]
+        );
+        assert_eq!(dialable(&[sock("8.8.8.8")], &local, true), []);
+        assert_eq!(
+            dialable(&[sock("127.0.0.1")], &local, true),
+            [sock("127.0.0.1")]
+        );
+        let _ = Ipv6Addr::LOCALHOST;
+    }
+
+    #[test]
+    fn this_pcs_adapter_list_can_be_read() {
+        // Whatever the machine's network looks like, reading it must not crash, and every prefix
+        // must be a valid length for its address family.
+        for (ip, prefix) in local_subnets() {
+            let max = if ip.is_ipv4() { 32 } else { 128 };
+            assert!(prefix <= max, "{ip}/{prefix}");
+        }
     }
 }

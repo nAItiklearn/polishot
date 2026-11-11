@@ -497,7 +497,11 @@ now calls, so the backend and the mock stay in step.
   `qs_send` (raw PNG body, headers `x-device-id`, `x-filename`), `qs_forget`, `qs_incoming_respond`, and the events
   `qs:devices`, `qs:pair-code`, `qs:incoming`, `qs:received`. Payloads are shape-checked on arrival (device ids are
   alphanumeric, the code must be `NNN NNN`, names lose control and bidirectional characters). The UI never
-  auto-confirms a code. The device list is **not** requested at launch unless this PC is known to have paired before
+  auto-confirms a code. `qs_pair_confirm` is sent as `{ accepted, peerId, sas }` with the device id and digits of the
+  code the user is looking at, so a backend that checks them can refuse an answer meant for another pairing (a backend
+  that does not yet simply ignores the two extra keys). A second, different `qs:pair-code` while one is shown never
+  replaces it or resets the answer in flight: the dialog keeps the visible code and adds a note that another device is
+  trying to pair. While this PC is dialling a device, only that device's code is accepted. The device list is **not** requested at launch unless this PC is known to have paired before
   (webview `localStorage` key `polishot.qs.v1` = `"1"`), because the first `qs_devices` / `qs_pairing_mode` call is what
   starts the listener and shows the Windows Firewall prompt.
 - **`capture_start` modes** `scroll` and `gif` (palette actions "Capture a scrolling window" Ctrl+Shift+L and "Record a
@@ -525,7 +529,19 @@ now calls, so the backend and the mock stay in step.
   approximation.
 - **Pin window**: a small pill shows the opacity and a close button while the pointer is over the pin and for a moment
   when it opens; Up/Down (and `+`/`-`) change the opacity like the wheel.
-- **Mock backend** (`?mock=1`, dev only) gained `qs=none|one|two|offline`, `qsdelay`, `qsfail`, `batch=N`, and
+- **Smoothness** (owner priority: fast, no glitch). The editor screen stays mounted behind History, Settings and
+  License and is only hidden, so returning is one attribute (it used to rebuild the canvas, about 250 ms with two long
+  tasks); inspector panels are built on first use and kept; the title bar reserves its action buttons so nothing moves
+  when a capture opens; the recognised-text overlay (`TextOverlay`) replaces the package `TextLayer` in this host
+  because that component re-measures every word on every editor event (about 80 ms per frame while dragging a slider
+  over a screenful of text); the overlay positions all words with one transform. Measured in a dev build, headless:
+  tab switch 45 to 70 ms with no long task (was 100 to 125 ms with one), back from a screen 50 to 70 ms (was 210 to 265 ms),
+  padding drag p95 frame 33 to 50 ms with text, also with 600 words (was 100 ms and rising with the word count).
+  `TextLayer` itself (packages/editor) could take the same approach: cache natural widths, one transform for the stage.
+- **Shortcut rule** ("Desktop backend review fixes"): the recorder and `validateAccelerator` now require Ctrl or Alt in a
+  global shortcut, with the backend's wording ("needs Ctrl or Alt, for example Ctrl+Shift+2"), so Shift-only and
+  Windows-key-only shortcuts are refused before they are sent.
+- **Mock backend** (`?mock=1`, dev only) gained `qs=none|one|two|offline`, `qsdelay`, `qsfail`, `batch=N`, `ocr=none|many`, and
   `window.__polishotMock.qs` helpers to play the phone's side. It is not part of a production build.
 
 ## Web editor (apps/web/app/editor), host behaviour and the route-scoped CSP
@@ -562,3 +578,52 @@ other hosts can match it and the website agent knows what the `/editor` route de
   shadow at 0), against 0.4 to 0.6 s for a plain canvas of the same size. The soft shadow is about half of it; the rest is the
   full-size draw and the PNG encode, none of which is cheap on the main thread. The host paints "Copying" before the work starts; the <300 ms bar of docs/UX-BAR.md needs the export to reuse
   the reduced-resolution shadow it already uses on screen and/or render in a worker with `OffscreenCanvas`.
+
+## Desktop backend review fixes (apps/desktop/src-tauri), IPC changes
+
+Two changes are not purely additive; the preview UI must follow (`apps/desktop/src/preview/lib/quicksend.ts` and
+`shared/ipc.ts`).
+
+### `qs_pair_confirm` is bound to the pairing on screen (breaking, security)
+
+`qs_pair_confirm({ peerId, sas, accepted })`. `peerId` and `sas` are the values of the `qs:pair-code` event (or the
+`qs_pair_start` result) the user is looking at (`sas` as shown, `"042 917"`, or without the space). The backend
+confirms only if they match the pending pairing; otherwise it rejects with "That is not the pairing on screen any
+more..." and leaves the pending pairing untouched. A missing `peerId` or `sas` is an argument error. The old
+`{ accepted }` form no longer works.
+
+Related behaviour: only one pairing can wait for an answer at a time (90 s). A second inbound pairing is dropped while
+one is waiting (its phone sees a failed attempt), `qs_pair_start` refuses ("A pairing is already waiting for your
+answer"), and the window is brought forward only for the first pairing of a pairing window. `qs_pairing_mode({ open:
+false })` abandons a waiting pairing.
+
+### Paths and links the backend now refuses
+
+- `plugin:opener|open_url` opens only `https://polishot.cam` and `https://www.polishot.cam` (the brand `SITE_URL`, kept
+  in step by a test), on the default port. Payment pages need their exact host added to `CHECKOUT_LINK_HOSTS` in
+  `core/src/opener.rs` once checkout exists; until then nothing else opens. This narrows the earlier "any https host".
+- `open_file`, `plugin:opener|reveal_item_in_dir`, `share_file`, `reveal_in_folder` and `export_save` with
+  `x-save-path` accept only paths on a local or mapped drive (`C:\...`, `Z:\...`). UNC paths (`\server\share`) and
+  `\?\`/`\.\` forms are refused with a readable message: touching a network path makes Windows send the user's
+  NTLM credentials to that server, and these paths come from web content. A network share mapped to a drive letter
+  works. The save folder setting itself may still be a UNC path (redirected Pictures folders exist).
+- Not done yet: running the Open and Save As dialogs inside Rust, which would let `x-save-path` and
+  `dialog:allow-open/save` go away. It needs preview changes (`shared/native.ts`); until then the dialog plugin
+  stays in the preview capability.
+- Global shortcuts must include Ctrl or Alt (Shift or the Windows key alone are refused).
+
+### New or changed behaviour worth knowing
+
+- Every webview (preview, overlays, pin, status) is locked to the app's own pages: `on_navigation` allows only
+  `tauri://`, `http(s)://tauri.localhost` (and the Vite dev server in debug builds), and `window.open` is denied.
+- Quick send: connections are limited to 4 at once and 2 per remote address, a connection that sends nothing is
+  dropped after 3 s, only LAN addresses (10/8, 172.16/12, 192.168/16, 169.254/16, fc00::/7) on one of this PC's own
+  subnets are dialled, the discovered-device table holds at most 256 entries, `qs:devices` is sent at most every
+  250 ms, and the mDNS browser restarts itself after a failure. An unreadable identity file is moved to an
+  `unreadable-<time>` folder (newest three kept) instead of being deleted, and `app_info().warnings` says to pair again.
+- A scrolling capture is capped at 64 megapixels (256 MB of RGBA) as well as 16384 rows, and `history_list` reads
+  only the first 600 characters of each OCR text.
+- `settings_set` is serialised, and rolls back the start-with-Windows entry if saving fails. A license store that
+  cannot be read is reported through `app_info().warnings` and keeps the last known status instead of reading as "no key".
+- Capture finishing and OCR run on two small fixed worker pools (OCR at below-normal priority) instead of one thread
+  per capture; `ocr_recognize` gives up after 30 s with a readable error.

@@ -160,14 +160,24 @@ pub fn activate(
 }
 
 /// Re-verify whatever is stored. Nothing stored (or only blanks) is `no-key`; a stored key that
-/// no longer verifies is `invalid` and never grants Pro (fails closed).
-pub fn current(store: &dyn SecretStore, verify: &Verifier<'_>, build_days: u32) -> LicenseStatus {
-    match store.read() {
-        Ok(Some(key)) if !key.trim().is_empty() => verify(key.trim())
+/// no longer verifies is `invalid` and never grants Pro (fails closed). A store that cannot be
+/// *read* is an error, not `no-key`: callers decide what to show while the question is open.
+pub fn current_checked(
+    store: &dyn SecretStore,
+    verify: &Verifier<'_>,
+    build_days: u32,
+) -> Result<LicenseStatus, String> {
+    Ok(match store.read()? {
+        Some(key) if !key.trim().is_empty() => verify(key.trim())
             .map(|info| LicenseStatus::from_info(&info, build_days))
             .unwrap_or_else(|_| LicenseStatus::invalid()),
         _ => LicenseStatus::unlicensed(),
-    }
+    })
+}
+
+/// [`current_checked`], with an unreadable store counted as no key.
+pub fn current(store: &dyn SecretStore, verify: &Verifier<'_>, build_days: u32) -> LicenseStatus {
+    current_checked(store, verify, build_days).unwrap_or_else(|_| LicenseStatus::unlicensed())
 }
 
 pub fn deactivate(store: &dyn SecretStore) -> Result<LicenseStatus, String> {
@@ -262,7 +272,9 @@ mod cred {
 
 impl SecretStore for CredentialStore {
     fn read(&self) -> Result<Option<String>, String> {
-        Ok(cred::read(&self.target)?.and_then(|b| String::from_utf8(b).ok()))
+        // A blob that is not text cannot be a key: hand it on as-is so it reads as "invalid" rather
+        // than silently as "no key".
+        Ok(cred::read(&self.target)?.map(|b| String::from_utf8_lossy(&b).into_owned()))
     }
 
     fn write(&self, secret: &str) -> Result<(), String> {
@@ -541,6 +553,36 @@ mod tests {
             "updates-expired" => "updates-expired",
             other => panic!("unknown reason {other}"),
         }
+    }
+
+    struct BrokenStore;
+
+    impl SecretStore for BrokenStore {
+        fn read(&self) -> Result<Option<String>, String> {
+            Err("Could not read Windows Credential Manager.".to_string())
+        }
+        fn write(&self, _: &str) -> Result<(), String> {
+            Err("no".to_string())
+        }
+        fn delete(&self) -> Result<(), String> {
+            Err("no".to_string())
+        }
+    }
+
+    #[test]
+    fn an_unreadable_store_is_reported_not_mistaken_for_no_key() {
+        let verify = |k: &str| polishot_license::verify(k, &[0u8; 32]);
+        let err = current_checked(&BrokenStore, &verify, 20_600).unwrap_err();
+        assert!(err.contains("Credential Manager"));
+        // The plain form fails closed.
+        let st = current(&BrokenStore, &verify, 20_600);
+        assert!(!st.licensed);
+        // A readable empty store is a clean no-key, not an error.
+        let empty = MemStore::default();
+        assert_eq!(
+            current_checked(&empty, &verify, 20_600).unwrap(),
+            LicenseStatus::unlicensed()
+        );
     }
 
     #[test]

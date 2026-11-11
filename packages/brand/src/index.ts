@@ -8,7 +8,7 @@ export const APP_NAME = 'Polishot';
 export const APP_SLUG = 'polishot';
 export const APP_ID = 'app.polishot';
 export const WATERMARK_TEXT = `Made with ${APP_NAME}`;
-export const SITE_URL = 'https://polishot.app';
+export const SITE_URL = 'https://polishot.cam';
 
 export type Theme = 'light' | 'dark';
 

@@ -4,7 +4,14 @@ packages:
   - "apps/web"
   - "apps/android/editor-host"
   - "tools/*"
+  - "scripts/ci"
 allowBuilds:
   tesseract.js: false
 minimumReleaseAgeExclude:
   - lucide-react@1.71.0
+# next@15.5.29 pins postcss 8.4.31, which has four advisories (GHSA-qx2v-qp2m-jg93, GHSA-6g55-p6wh-862q,
+# GHSA-r28c-9q8g-f849, GHSA-fxqj-rqcc-2cmp), the last fixed in 8.5.23. 8.5.32 is the version
+# @tailwindcss/postcss already resolves to, so this leaves a single postcss in the tree.
+# Drop the override once Next ships a patched postcss (`pnpm audit --prod` shows it in CI).
+overrides:
+  "postcss@<8.5.23": 8.5.32

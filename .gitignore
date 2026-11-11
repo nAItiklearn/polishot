@@ -37,3 +37,8 @@ apps/desktop/e2e/artifacts/
 apps/web/.lighthouseci/
 apps/web/test-results/
 apps/web-e2e-tmp/
+
+# Owner reference screenshots and style references at the repo root (never commit)
+/*.png
+/*.jpg
+packages/editor/dist-playground/

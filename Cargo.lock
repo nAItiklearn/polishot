@@ -3222,6 +3222,7 @@ dependencies = [
  "serde_json",
  "windows",
  "windows-capture",
+ "zeroize",
 ]
 
 [[package]]

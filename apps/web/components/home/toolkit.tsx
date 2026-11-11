@@ -55,7 +55,7 @@ function RedactVisual({ step }: { step: number }) {
     <div className="tv-paper space-y-2 px-4 py-4 font-mono text-[12px] text-[#2a2722]">
       {['maya@northwind.example', 'sk_live_demo_7Hq2R9', '203.0.113.42'].map((v, i) => (
         <span key={v} className="flex items-center justify-between gap-3">
-          <span className="font-sans text-[11px] text-[#8a8378]">{['Email', 'Key', 'IP'][i]}</span>
+          <span className="font-sans text-[11px] text-[#6c665c]">{['Email', 'Key', 'IP'][i]}</span>
           <span className="relative">
             {v}
             <span
@@ -139,7 +139,7 @@ function SendVisual({ step }: { step: number }) {
           <Laptop className="size-6" aria-hidden="true" />
         )}
       </span>
-      <span className="absolute bottom-2 left-1/2 -translate-x-1/2 font-mono text-[11px] tracking-[0.2em] text-[#8a8378]">
+      <span className="absolute bottom-2 left-1/2 -translate-x-1/2 font-mono text-[11px] tracking-[0.2em] text-[#6c665c]">
         482 913
       </span>
     </div>
@@ -288,7 +288,6 @@ function ToolCard({ tool, index }: { tool: Tool; index: number }) {
       onPointerEnter={() => (clock.reduced ? undefined : clock.goTo(0))}
       className="tool-card"
       style={{ ...tool.place, '--tilt': `${tool.tilt}deg` } as CSSProperties}
-      aria-label={`${tool.label}. ${tool.title} ${tool.note} Replay the demo.`}
     >
       <span className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-2">
@@ -299,13 +298,14 @@ function ToolCard({ tool, index }: { tool: Tool; index: number }) {
         </span>
         {tool.keys ? <Keys keys={tool.keys} size="sm" /> : null}
       </span>
-      <span className="mt-3 block h-[132px]" data-demo="" aria-hidden="true">
+      <span className="mt-3 block h-[132px]" data-demo="" data-illustration="" aria-hidden="true">
         <Visual step={clock.step} />
       </span>
       <span className="mt-3.5 block text-[17px] font-semibold leading-tight text-ink">
         {tool.title}
       </span>
       <span className="mt-1 block text-[13.5px] text-ink-3">{tool.note}</span>
+      <span className="sr-only"> Replay the demo.</span>
     </button>
   );
 }

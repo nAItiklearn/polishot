@@ -26,7 +26,7 @@ function CapturedWindow({ step }: { step: number }) {
         <span className="demo-dot" />
         <span className="demo-dot" />
         <span className="demo-dot" />
-        <span className="ml-[2cqw] text-[1.15cqw] text-[#8a8378]">Northwind · Settings</span>
+        <span className="ml-[2cqw] text-[1.15cqw] text-[#6c665c]">Northwind · Settings</span>
       </div>
       <div className="flex h-[calc(100%-4.2cqw)]">
         <div className="demo-window-side">
@@ -95,6 +95,7 @@ export function HeroDemo() {
         <div
           className="demo-stage"
           data-demo=""
+          data-illustration=""
           data-step={step}
           role="img"
           aria-label={`Polishot demo, step ${step + 1} of ${STEPS.length}: ${current.label}. ${current.status}.`}
@@ -156,7 +157,7 @@ export function HeroDemo() {
                 >
                   <ShieldCheck className="size-[1.2cqw] text-[#b03c15]" />
                   <span>{label}</span>
-                  <span className="ml-auto text-[#8a8378]">Covered</span>
+                  <span className="ml-auto text-[#6c665c]">Covered</span>
                 </div>
               ))}
             </div>
@@ -180,7 +181,7 @@ export function HeroDemo() {
           <div className={cn('demo-toast', step === 4 && 'is-on')}>
             <Check className="size-[1.3cqw]" />
             Saved northwind-billing.png
-            <span className="text-[#a59d90]">PNG · 2x · 1.2 MB</span>
+            <span className="text-[#857d71]">PNG · 2x · 1.2 MB</span>
           </div>
 
           {/* The status pill that hangs from the top edge, like a notch. */}
@@ -198,7 +199,7 @@ export function HeroDemo() {
       <div className="mx-auto mt-6 max-w-[760px]">
         <ol className="grid grid-cols-5 gap-2" aria-label="Demo steps">
           {STEPS.map((s, i) => {
-return (
+            return (
               <li key={s.id}>
                 <button
                   type="button"
@@ -221,6 +222,14 @@ return (
                         }}
                       />
                     ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      'mt-2.5 block text-[13px] font-medium transition-colors',
+                      i === step ? 'text-ink' : 'text-ink-3 group-hover:text-ink-2',
+                    )}
+                  >
+                    {s.label}
                   </span>
                 </button>
               </li>

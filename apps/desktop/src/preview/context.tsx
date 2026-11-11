@@ -35,7 +35,8 @@ export interface Toast extends ToastInput {
   id: number;
 }
 
-export type Notify = (toast: ToastInput | string) => void;
+/** Shows a toast and returns its id, so a long-running message ("Sending...") can be dismissed when it is done. */
+export type Notify = (toast: ToastInput | string) => number;
 
 export interface AppContextValue {
   editor: Editor;
@@ -51,6 +52,7 @@ export interface AppContextValue {
   /** Remembers a new mark (null clears it). Returns false if it could not be stored. */
   setBrandMark: (mark: BrandMark | null) => boolean;
   notify: Notify;
+  dismissToast: (id: number) => void;
   navigate: (view: View) => void;
   view: View;
 }
@@ -84,7 +86,7 @@ export function useToasts(): { toasts: Toast[]; notify: Notify; dismiss: (id: nu
   const notify = useCallback<Notify>(
     (input) => {
       const t: ToastInput = typeof input === 'string' ? { message: input } : input;
-      if (!t.message) return;
+      if (!t.message) return 0;
       const id = next.current++;
       const duration = t.duration ?? (t.action || t.tone === 'error' ? 6000 : 3000);
       setToasts((list) => {
@@ -93,6 +95,7 @@ export function useToasts(): { toasts: Toast[]; notify: Notify; dismiss: (id: nu
         return [...rest, { ...t, id }].slice(-3);
       });
       timers.current.set(id, window.setTimeout(() => dismiss(id), duration));
+      return id;
     },
     [dismiss],
   );

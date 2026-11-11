@@ -44,6 +44,8 @@ pub enum RecordEnd {
     Stopped,
     TimeLimit,
     GrabFailed,
+    /// The encoder thread died (disk full, write error); recording more would be wasted work.
+    EncoderFailed,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -120,12 +122,25 @@ where
             Err(_) => break RecordEnd::GrabFailed,
         };
         // A stall (slow grab or encoder) owes several ticks: repeat this frame to keep the
-        // recording's timeline true. Identical frames cost almost nothing in the GIF.
+        // recording's timeline true. Identical frames cost almost nothing in the GIF. Only the
+        // extra repeats are copies; the last one moves the grabbed frame itself.
         let n = due.min(MAX_CATCH_UP_TICKS).min(max_ticks - sent);
-        for _ in 0..n {
-            if tx.send(frame.clone()).is_err() {
-                break; // the encoder died; its error is reported below
+        let mut frame = Some(frame);
+        let mut encoder_died = false;
+        for i in 0..n {
+            let next = if i + 1 == n {
+                frame.take()
+            } else {
+                frame.clone()
+            };
+            if next.is_none_or(|f| tx.send(f).is_err()) {
+                encoder_died = true;
+                break;
             }
+        }
+        if encoder_died {
+            // Stop grabbing: the worker's error is reported below.
+            break RecordEnd::EncoderFailed;
         }
         sent += due.min(max_ticks - sent);
     };
@@ -303,6 +318,38 @@ mod tests {
         .unwrap();
         assert_eq!(stats.end, RecordEnd::TimeLimit);
         assert_eq!(stats.ticks, 6); // 0.2 s * 30 fps
+    }
+
+    /// A destination that always fails, like a full disk.
+    struct Broken;
+
+    impl Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("disk full"))
+        }
+    }
+
+    #[test]
+    fn a_dead_encoder_stops_the_recording_at_once() {
+        let mut src = Fake::new();
+        let started = Instant::now();
+        let res = record(
+            &mut src,
+            Broken,
+            RecordConfig {
+                fps: 30,
+                max_secs: 10.0,
+                max_width: 0,
+            },
+        );
+        let err = res.err().expect("the encoder error is reported");
+        assert!(err.contains("could not be"), "{err}");
+        // Ten seconds at 30 fps would be 300 grabs; a dead encoder must end it within a few.
+        assert!(src.grabs <= 12, "kept grabbing: {}", src.grabs);
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

@@ -7,6 +7,7 @@ import {
   formatCaptureTime,
   formatDimensions,
   formatFromFilename,
+  groupByDay,
   joinPath,
   middleEllipsis,
   plural,
@@ -97,5 +98,41 @@ describe('small text helpers', () => {
     expect(e.endsWith('…')).toBe(true);
     expect(e.length).toBeLessThanOrEqual(31);
     expect(excerpt('  lots   of\n\nspace ')).toBe('lots of space');
+  });
+});
+
+describe('groupByDay', () => {
+  const NOW = Date.UTC(2026, 10, 11, 12, 0, 0);
+  const at = (days: number, hours = 0) => ({ createdAt: NOW - days * 86_400_000 - hours * 3_600_000 });
+  const opts = { now: NOW, locale: 'en-US', timeZone: 'UTC' };
+
+  it('names the recent days and then the months', () => {
+    const groups = groupByDay([at(0), at(0, 3), at(1), at(3), at(6), at(9), at(20), at(45), at(400)], opts);
+    expect(groups.map((g) => [g.label, g.items.length])).toEqual([
+      ['Today', 2],
+      ['Yesterday', 1],
+      ['Earlier this week', 2],
+      ['November 2026', 1],
+      ['October 2026', 1],
+      ['September 2026', 1],
+      ['October 2025', 1],
+    ]);
+  });
+
+  it('keeps one group per run, so a list extended by paging joins the last group', () => {
+    const first = groupByDay([at(0), at(30)], opts);
+    const more = groupByDay([at(0), at(30), at(31)], opts);
+    expect(first.at(-1)?.items).toHaveLength(1);
+    expect(more.at(-1)?.items).toHaveLength(2);
+  });
+
+  it('puts a capture from just after midnight with today, not yesterday', () => {
+    const justAfterMidnight = { createdAt: Date.UTC(2026, 10, 11, 0, 5) };
+    expect(groupByDay([justAfterMidnight], opts)[0]?.label).toBe('Today');
+  });
+
+  it('copes with an empty list and with a clock that is slightly behind', () => {
+    expect(groupByDay([], opts)).toEqual([]);
+    expect(groupByDay([{ createdAt: NOW + 3_600_000 }], opts)[0]?.label).toBe('Today');
   });
 });

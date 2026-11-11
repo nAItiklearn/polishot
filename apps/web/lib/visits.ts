@@ -40,8 +40,24 @@ export function clientIp(headers: Headers): string {
   return forwarded || headers.get('x-real-ip')?.trim() || 'unknown';
 }
 
-export async function visitorHash(ip: string, userAgent: string, salt: string): Promise<string> {
-  const data = new TextEncoder().encode(`${ip}|${userAgent}|${salt}`);
+/** IPv6 addresses are cut to their /64 (one household or device); IPv4 is kept whole. */
+export function networkOf(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  const head = ip.split('::')[0] ?? '';
+  return `${head.split(':').slice(0, 4).join(':')}::/64`;
+}
+
+/** UTC year and month. Mixed into the hash so stored values change every month and cannot track anyone. */
+export function monthOf(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * One visitor = one network per month. The user agent is deliberately left out: a client can vary it freely,
+ * which would let anyone inflate the count.
+ */
+export async function visitorHash(ip: string, salt: string, month: string): Promise<string> {
+  const data = new TextEncoder().encode(`${networkOf(ip)}|${month}|${salt}`);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -85,6 +101,11 @@ const json = (body: unknown, status: number, cache: string) =>
 
 const NO_STORE = 'no-store';
 
+/** Per-network write limit for the counter. */
+const RATE_KEY_PREFIX = 'visitors:rl:';
+const RATE_WINDOW_SECONDS = 3600;
+const RATE_LIMIT = 5;
+
 /** The whole route, with its dependencies passed in so it can be tested without a network. */
 export async function handleVisits(
   request: Request,
@@ -95,20 +116,34 @@ export async function handleVisits(
 
   try {
     if (request.method === 'GET') {
+      // A query string would bypass the CDN cache and cost an upstream call every time.
+      if (new URL(request.url).search) return json({ error: 'not found' }, 404, NO_STORE);
       const count = await pipeline(env, [['PFCOUNT', VISITORS_KEY]], fetchImpl);
       return json({ count }, 200, `public, s-maxage=${CACHE_SECONDS}, stale-while-revalidate=300`);
     }
 
     if (request.method === 'POST') {
-      if (!isSameOrigin(request.headers, request.url)) return json({ error: 'forbidden' }, 403, NO_STORE);
+      if (!isSameOrigin(request.headers, request.url))
+        return json({ error: 'forbidden' }, 403, NO_STORE);
       const length = Number(request.headers.get('content-length') ?? 0);
-      if (!Number.isFinite(length) || length > MAX_BODY_BYTES) return json({ error: 'too large' }, 413, NO_STORE);
+      if (!Number.isFinite(length) || length > MAX_BODY_BYTES)
+        return json({ error: 'too large' }, 413, NO_STORE);
 
-      const hash = await visitorHash(
-        clientIp(request.headers),
-        request.headers.get('user-agent') ?? '',
-        env.salt,
+      const hash = await visitorHash(clientIp(request.headers), env.salt, monthOf(new Date()));
+      // At most RATE_LIMIT counted calls per network per hour. Past that, the count is only read.
+      const rateKey = `${RATE_KEY_PREFIX}${hash}`;
+      const calls = await pipeline(
+        env,
+        [
+          ['SET', rateKey, '0', 'EX', String(RATE_WINDOW_SECONDS), 'NX'],
+          ['INCR', rateKey],
+        ],
+        fetchImpl,
       );
+      if (calls > RATE_LIMIT) {
+        const current = await pipeline(env, [['PFCOUNT', VISITORS_KEY]], fetchImpl);
+        return json({ count: current }, 200, NO_STORE);
+      }
       const count = await pipeline(
         env,
         [

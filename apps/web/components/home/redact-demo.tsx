@@ -49,19 +49,20 @@ export function RedactDemo() {
           <span className="demo-dot" />
           <span className="demo-dot" />
           <span className="demo-dot" />
-          <span className="ml-3 text-[13px] text-[#8a8378]">Support · Ticket #4021</span>
+          <span className="ml-3 text-[13px] text-[#6c665c]">Support · Ticket #4021</span>
         </div>
         <div
           className="relative space-y-4 p-5 text-[14.5px] leading-relaxed text-[#2a2722]"
           data-demo=""
+          data-illustration=""
         >
           <div className="max-w-[90%] rounded-2xl rounded-tl-md bg-[#f1ebe1] px-4 py-3">
-            <p className="mb-1 text-[12px] font-medium text-[#8a8378]">Maya, 9:41</p>
+            <p className="mb-1 text-[12px] font-medium text-[#6c665c]">Maya, 9:41</p>
             Hi! Billing keeps failing. My card is {secret('card')} and the account email is{' '}
             {secret('email')}.
           </div>
           <div className="ml-auto max-w-[90%] rounded-2xl rounded-tr-md bg-[#1f1c19] px-4 py-3 text-[#f7f2ea]">
-            <p className="mb-1 text-[12px] font-medium text-[#a59d90]">You, 9:44</p>
+            <p className="mb-1 text-[12px] font-medium text-[#857d71]">You, 9:44</p>
             Thanks. The logs show calls from {secret('ip')} using {secret('key')}. I am rotating
             that key now.
           </div>
@@ -86,7 +87,6 @@ export function RedactDemo() {
                   type="button"
                   disabled={!scanned}
                   aria-pressed={!isShown}
-                  aria-label={`${f.kind}: ${isShown ? 'shown' : 'covered'}. Toggle.`}
                   onClick={() => setShown((s) => ({ ...s, [f.id]: !s[f.id] }))}
                   className={cn(
                     'flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left text-[13.5px] transition-colors',

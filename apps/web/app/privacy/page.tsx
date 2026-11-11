@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { APP_NAME } from '@polishot/brand';
 import { LegalPage } from '@/components/legal';
-import { GITHUB_URL } from '@/lib/site';
+import { SUPPORT_EMAIL } from '@/lib/site';
 import { pageMetadata } from '@/lib/metadata';
 
 export const metadata: Metadata = pageMetadata({
@@ -19,13 +19,13 @@ export default function PrivacyPage() {
     >
       <h2>What the apps do with your screenshots</h2>
       <p>
-        Capture, balancing, redaction, text recognition and export all run on your device. Your images are
-        not uploaded to us or to anyone else.
+        Capture, balancing, redaction, text recognition and export all run on your device. Your
+        images are not uploaded to us or to anyone else.
       </p>
       <ul>
         <li>
-          On Windows, text recognition uses the OCR built into Windows. On Android, it uses an on-device
-          model that ships with the app.
+          On Windows, text recognition uses the OCR built into Windows. On Android, it uses an
+          on-device model that ships with the app.
         </li>
         <li>The text found in your screenshots is never logged.</li>
       </ul>
@@ -33,90 +33,95 @@ export default function PrivacyPage() {
       <h2>What is stored on your device</h2>
       <ul>
         <li>
-          <strong>Web editor.</strong> The editor on this site keeps your saved looks (style settings only,
-          never images) in your browser&apos;s local storage. Clear them by clearing this site&apos;s data.
+          <strong>Web editor.</strong> The editor on this site keeps your saved looks (style
+          settings only, never images) in your browser&apos;s local storage. Clear them by clearing
+          this site&apos;s data.
         </li>
         <li>
-          <strong>History.</strong> Captures and their editable settings are saved so you can reopen them.
-          On Windows they are in a history folder under <code>%LOCALAPPDATA%\{APP_NAME}</code>. On Android
-          they are in the app&apos;s private storage.
+          <strong>History.</strong> Captures and their editable settings are saved so you can reopen
+          them. On Windows they are in a history folder under <code>%LOCALAPPDATA%\{APP_NAME}</code>
+          . On Android they are in the app&apos;s private storage.
         </li>
         <li>
-          <strong>Search index.</strong> The text recognised in a capture is stored next to it so history
-          can be searched. It stays on your device.
+          <strong>Search index.</strong> The text recognised in a capture is stored next to it so
+          history can be searched. It stays on your device.
         </li>
         <li>
-          <strong>Deleting.</strong> Delete one capture, or clear all history, from inside the app. On
-          Windows you can also delete the folder. Uninstalling the Android app removes its data.
+          <strong>Deleting.</strong> Delete one capture, or clear all history, from inside the app.
+          On Windows you can also delete the folder. Uninstalling the Android app removes its data.
         </li>
         <li>
-          <strong>Settings and license key.</strong> Stored on your device, in Windows Credential Manager
-          and in Android Keystore-backed storage.
+          <strong>Settings and license key.</strong> Stored on your device, in Windows Credential
+          Manager and in Android Keystore-backed storage.
         </li>
       </ul>
 
       <h2>Accounts and telemetry</h2>
       <p>
-        There is no account, and the apps collect no analytics of their own. They do not need an internet
-        connection to work. If crash reports or usage statistics are ever added, they will be opt-in and
-        listed here first.
+        There is no account, and the apps collect no analytics of their own. They do not need an
+        internet connection to work. If crash reports or usage statistics are ever added, they will
+        be opt-in and listed here first.
       </p>
       <p>
-        One exception on Android: text recognition uses Google&apos;s on-device ML Kit model. Google&apos;s
-        library sends anonymous diagnostics to Google, such as the device model, Android version, app
-        version and how long recognition took. It never sends your images or the text in them, and Google
-        does not offer a way to switch this off. Windows does not use it.
+        One exception on Android: text recognition uses Google&apos;s on-device ML Kit model.
+        Google&apos;s library sends anonymous diagnostics to Google, such as the device model,
+        Android version, app version and how long recognition took. It never sends your images or
+        the text in them, and Google does not offer a way to switch this off. Windows does not use
+        it.
       </p>
 
       <h2>Quick send</h2>
       <p>
-        Quick send moves images between your PC and your phone over your local network. The devices find
-        each other on that network, pair by comparing a six-digit code you confirm on both screens, and then
-        send images directly to each other, encrypted. No server of ours is involved, and a device that has
-        not been paired is refused.
+        Quick send moves images between your PC and your phone over your local network. The devices
+        find each other on that network, pair by comparing a six-digit code you confirm on both
+        screens, and then send images directly to each other, encrypted. No server of ours is
+        involved, and a device that has not been paired is refused.
       </p>
 
       <h2>Licenses and purchases</h2>
       <p>
-        A license key contains a hash of the email address it was issued to, not the address itself. The
-        app checks the key on your device, so activating it sends nothing.
+        A license key contains a hash of the email address it was issued to, not the address itself.
+        The app checks the key on your device, so activating it sends nothing.
       </p>
       <p>
-        Licenses are not on sale yet. When they are, this section will name the payment provider and say
-        what is kept about a purchase. At a minimum, that is the email address a key was issued to.
+        Licenses are not on sale yet. When they are, this section will name the payment provider and
+        say what is kept about a purchase. At a minimum, that is the email address a key was issued
+        to.
       </p>
 
       <h2>This website</h2>
       <ul>
         <li>No tracking cookies and no analytics scripts.</li>
         <li>
-          <strong>Visitor counter.</strong> When it is switched on, the site shows how many different people
-          have visited. It counts a one-way hash of your IP address, your browser string and a secret salt, kept
-          in a structure that only estimates a total and cannot list who is in it. The address itself is not
-          stored or logged, no cookie is set, and a flag in your tab&apos;s session storage stops it counting
-          you twice in one visit.
+          <strong>Visitor counter.</strong> When it is switched on, the site shows how many
+          different people have visited. It counts a one-way hash of your IP address, your browser
+          string and a secret salt, kept in a structure that only estimates a total and cannot list
+          who is in it. The address itself is not stored or logged, no cookie is set, and a flag in
+          your tab&apos;s session storage stops it counting you twice in one visit.
         </li>
         <li>
           The web editor processes an image inside your browser tab. The image is not uploaded.
         </li>
         <li>Fonts are served from this site. There are no third-party font or script requests.</li>
         <li>
-          The site is hosted on Vercel, which keeps standard server logs (IP address, page requested, user
-          agent) for security and operations.
+          The site is hosted on Vercel, which keeps standard server logs (IP address, page
+          requested, user agent) for security and operations.
         </li>
         <li>
-          Download buttons go to GitHub Releases. GitHub&apos;s own privacy policy applies once you are
-          there.
+          Downloads are plain files served over HTTPS. Downloading one sends nothing beyond a normal
+          web request.
         </li>
       </ul>
 
       <h2>Questions</h2>
       <p>
-        There is no private contact address yet. Open an issue on{' '}
-        <a href={`${GITHUB_URL}/issues`} rel="noopener noreferrer" target="_blank">
-          GitHub
-        </a>{' '}
-        and do not include anything private in it.
+        {SUPPORT_EMAIL ? (
+          <>
+            Write to <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+          </>
+        ) : (
+          'A contact address will be listed here before the first release.'
+        )}
       </p>
     </LegalPage>
   );

@@ -1,9 +1,11 @@
 import type { UserPreset } from '@polishot/editor/react';
 import { describe, expect, it } from 'vitest';
 import {
+  FREE_BATCH_LIMIT,
   FREE_PRESET_LIMIT,
   PRESET_LIMIT_MESSAGE,
   addPreset,
+  batchLimit,
   canSavePreset,
   entitlementFrom,
   formatUpdatesUntil,
@@ -167,5 +169,21 @@ describe('parseUserPresets (stored JSON is untrusted)', () => {
   it('caps the number of looks', () => {
     const many = Array.from({ length: 150 }, (_, i) => look(`look-${i}`));
     expect(parseUserPresets(JSON.stringify(many))).toHaveLength(100);
+  });
+});
+
+describe('limits come from the editor package (section 5b)', () => {
+  it('Free keeps 3 looks and batches 5 images; Pro has no limit', () => {
+    expect(FREE_PRESET_LIMIT).toBe(3);
+    expect(FREE_BATCH_LIMIT).toBe(5);
+    expect(presetLimit(FREE)).toBe(3);
+    expect(batchLimit(FREE)).toBe(5);
+    expect(presetLimit(PRO)).toBe(Number.POSITIVE_INFINITY);
+    expect(batchLimit(PRO)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('an expired or invalid license batches like Free', () => {
+    expect(batchLimit({ pro: false, reason: 'updates-expired', updatesUntil: '2026-01-14' })).toBe(5);
+    expect(batchLimit({ pro: false, reason: 'invalid' })).toBe(5);
   });
 });

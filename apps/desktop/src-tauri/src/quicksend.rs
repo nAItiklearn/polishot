@@ -32,6 +32,10 @@ impl Host for AppHost {
     fn register_image(&self, width: u32, height: u32, rgba: Vec<u8>) -> CaptureMeta {
         register_capture(&self.app, width, height, rgba, Source::File)
     }
+
+    fn warn(&self, message: &str) {
+        state(&self.app).add_warning(message.to_string());
+    }
 }
 
 /// Start quick send on first use. Cheap on later calls.
@@ -52,16 +56,27 @@ pub fn ensure(app: &AppHandle) -> Result<Arc<QuickSend>, String> {
     Ok(q)
 }
 
-/// At app start: bring quick send up only when a device is already paired.
+/// At app start: bring quick send up only when a device is already paired. Everything,
+/// including reading the pair files (a directory scan plus one DPAPI call per file), runs on a
+/// background thread so it never delays the tray or the first hotkey.
 pub fn start_if_paired(app: &AppHandle) {
-    let dir = state(app).paths.quicksend_dir();
-    if QsStore::new(&dir).load_pairs().is_empty() {
-        return;
-    }
     let app = app.clone();
     std::thread::spawn(move || {
+        let dir = state(&app).paths.quicksend_dir();
+        if QsStore::new(&dir).load_pairs().is_empty() {
+            return;
+        }
         if let Err(e) = ensure(&app) {
             tlog!("quick send start failed: {e}");
         }
     });
+}
+
+/// App exit: withdraw the mDNS advertisement and stop the engine's loops.
+pub fn shutdown(app: &AppHandle) {
+    if let Ok(slot) = state(app).quicksend.lock() {
+        if let Some(q) = slot.as_ref() {
+            q.shutdown();
+        }
+    }
 }

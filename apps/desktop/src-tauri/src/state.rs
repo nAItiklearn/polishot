@@ -11,10 +11,11 @@ use crate::geometry::IRect;
 use crate::history::History;
 use crate::ids::{new_id, now_millis, validate_id};
 use crate::imgio;
-use crate::jobs::{write_atomic, OcrJobs, OcrSlot};
+use crate::jobs::{write_atomic, OcrJobs, OcrSlot, WorkerPool};
 use crate::license::{CredentialStore, LicenseStatus};
 use crate::ocr::{self, OcrWord};
 use crate::paths::Paths;
+use crate::session::{self, SingleFlight};
 use crate::settings::Settings;
 use crate::store::{Capture, CaptureMeta, CaptureStore, Frame, Source};
 use crate::winutil::{MonitorInfo, WinEntry};
@@ -53,6 +54,16 @@ pub struct Session {
     pub first_shown: bool,
 }
 
+impl session::Session for Session {
+    fn nonce(&self) -> u64 {
+        self.nonce
+    }
+
+    fn set_committed(&mut self, committed: bool) {
+        self.committed = committed;
+    }
+}
+
 /// How frozen frames are served: BMP (no encode) or PNG (only used to measure the difference).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameFormat {
@@ -67,6 +78,14 @@ pub struct AppState {
     pub session: Mutex<Option<Session>>,
     pub history: History,
     pub ocr: OcrJobs,
+    /// PNG encode, thumbnail, disk and history for new captures (two at a time).
+    pub finalize_pool: WorkerPool,
+    /// Text recognition (two at a time, below-normal priority).
+    pub ocr_pool: WorkerPool,
+    /// Held while a hotkey press is grabbing the screen, so a double tap grabs once.
+    pub start_flight: SingleFlight,
+    /// Serialises `settings_set` end to end (read, apply side effects, save, publish).
+    pub settings_lock: Mutex<()>,
     pub license: Mutex<LicenseStatus>,
     pub license_store: CredentialStore,
     pub warnings: Mutex<Vec<String>>,
@@ -88,7 +107,9 @@ impl AppState {
 
     pub fn add_warning(&self, msg: String) {
         if let Ok(mut w) = self.warnings.lock() {
-            w.push(msg);
+            if !w.contains(&msg) {
+                w.push(msg);
+            }
         }
     }
 }
@@ -121,7 +142,12 @@ pub fn register_capture(
         store.insert(capture.clone());
     }
     let app2 = app.clone();
-    std::thread::spawn(move || finalize_capture(&app2, &capture));
+    if let Err(e) = st
+        .finalize_pool
+        .submit(move || finalize_capture(&app2, &capture))
+    {
+        tlog!("could not queue persistence: {e}");
+    }
     meta
 }
 
@@ -243,9 +269,20 @@ fn run_ocr(app: &AppHandle, id: &str, slot: &Arc<OcrSlot>) {
 pub fn ensure_ocr(app: &AppHandle, id: &str) {
     let (slot, created) = state(app).ocr.slot(id);
     if created {
-        let app2 = app.clone();
-        let id2 = id.to_string();
-        std::thread::spawn(move || run_ocr(&app2, &id2, &slot));
+        queue_ocr(app, id, slot);
+    }
+}
+
+/// Run OCR for `id` on the bounded, low-priority pool; a pool that cannot take the job fails the
+/// slot so waiters get an answer instead of hanging.
+fn queue_ocr(app: &AppHandle, id: &str, slot: Arc<OcrSlot>) {
+    let (app2, id2, slot2) = (app.clone(), id.to_string(), slot.clone());
+    if let Err(e) = state(app)
+        .ocr_pool
+        .submit(move || run_ocr(&app2, &id2, &slot2))
+    {
+        state(app).ocr.forget(id);
+        slot.complete(Err(e));
     }
 }
 
@@ -254,10 +291,7 @@ pub fn ocr_result(app: &AppHandle, id: &str) -> Result<Arc<Vec<OcrWord>>, String
     validate_id(id)?;
     let (slot, created) = state(app).ocr.slot(id);
     if created {
-        let app2 = app.clone();
-        let id2 = id.to_string();
-        let slot2 = slot.clone();
-        std::thread::spawn(move || run_ocr(&app2, &id2, &slot2));
+        queue_ocr(app, id, slot.clone());
     }
     slot.wait()
 }

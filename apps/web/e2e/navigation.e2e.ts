@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
 
-const REPO = process.env.NEXT_PUBLIC_GITHUB_REPO ?? 'owner/polishot';
-
 test.describe('header', () => {
   test('primary links go where they say', async ({ page, isMobile }) => {
     test.skip(isMobile, 'The desktop nav is hidden on small screens; see the mobile menu test.');
@@ -11,7 +9,10 @@ test.describe('header', () => {
       ['Changelog', '/changelog'],
     ] as const) {
       await page.goto('/');
-      await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: label }).click();
+      await page
+        .getByRole('navigation', { name: 'Primary' })
+        .getByRole('link', { name: label })
+        .click();
       await expect(page).toHaveURL(href);
       await expect(page.locator('h1')).toHaveCount(1);
       await expect(
@@ -79,12 +80,11 @@ test.describe('footer', () => {
     });
   }
 
-  test('the GitHub link points at the configured repository and opens safely', async ({ page }) => {
-    await page.goto('/');
-    const link = page.getByRole('contentinfo').getByRole('link', { name: /GitHub/ });
-    await expect(link).toHaveAttribute('href', `https://github.com/${REPO}`);
-    await expect(link).toHaveAttribute('rel', /noopener/);
-    await expect(link).toHaveAttribute('target', '_blank');
+  test('the site never links to the private source repository', async ({ page }) => {
+    for (const path of ['/', '/download', '/privacy']) {
+      await page.goto(path);
+      await expect(page.locator('a[href*="github.com"]')).toHaveCount(0);
+    }
   });
 
   test('the version in the footer links to the changelog', async ({ page }) => {

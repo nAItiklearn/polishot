@@ -61,13 +61,13 @@ test.describe('home', () => {
   test('the redaction demo can show and cover each finding', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
-    const toggle = page.getByRole('button', { name: /^Email address: covered/ });
+    const toggle = page.getByRole('button', { name: /^Email address/ });
     await toggle.scrollIntoViewIfNeeded();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toContainText('Covered');
     await toggle.click();
-    await expect(page.getByRole('button', { name: /^Email address: shown/ })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toContainText('Shown');
   });
 
   test('uses no screenshots as images: the demos are live HTML', async ({ page }) => {

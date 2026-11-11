@@ -18,6 +18,14 @@ pub fn open_file(app: &AppHandle, raw_path: &str) -> Result<CaptureMeta, String>
         return Err("That file path is not valid.".to_string());
     }
     let path = PathBuf::from(raw_path);
+    // A path chosen by web content must not reach a network share (Windows would send the user's
+    // credentials to it); mapped drive letters are fine.
+    if !crate::opener::is_local_drive_path(&path) {
+        return Err(
+            "Open images from a drive on this PC (map a network share to a drive letter first)."
+                .to_string(),
+        );
+    }
     let ext = lowercase_ext(&path).ok_or("That file type is not supported.")?;
     if !ALLOWED_INPUT_EXTS.contains(&ext.as_str()) {
         return Err("Only PNG, JPEG, WebP and BMP images can be opened.".to_string());
@@ -59,26 +67,14 @@ pub fn export_save(
     Ok(target.to_string_lossy().into_owned())
 }
 
-/// A path the share sheet may hand to other apps: an image inside the save or captures folder.
+/// A path the share sheet (or Explorer) may be given: an image inside the save or captures folder,
+/// as a plain `C:\...` path. `canonicalize` returns the `\\?\` form, which WinRT rejects, so the
+/// prefix is removed after the containment check (see `polishot_core::opener::resolve_shareable`).
 pub fn shareable_path(app: &AppHandle, raw_path: &str) -> Result<PathBuf, String> {
-    if raw_path.is_empty() || raw_path.len() > 1024 || raw_path.contains('\0') {
-        return Err("That file path is not valid.".to_string());
-    }
-    let canon =
-        std::fs::canonicalize(raw_path).map_err(|_| "That file could not be found.".to_string())?;
     let st = state(app);
-    let save = std::fs::canonicalize(st.settings().save_folder.trim()).ok();
-    let caps = std::fs::canonicalize(st.paths.captures_dir()).ok();
-    let inside = [save, caps]
-        .into_iter()
-        .flatten()
-        .any(|root| canon.starts_with(root));
-    if !inside {
-        return Err("Only saved images can be shared.".to_string());
-    }
-    let ext = lowercase_ext(&canon).unwrap_or_default();
-    if !canon.is_file() || !(crate::ids::EXPORT_EXTS.contains(&ext.as_str()) || ext == "gif") {
-        return Err("Only saved images can be shared.".to_string());
-    }
-    Ok(canon)
+    let roots = [
+        PathBuf::from(st.settings().save_folder.trim()),
+        st.paths.captures_dir(),
+    ];
+    crate::opener::resolve_shareable(raw_path, &roots)
 }

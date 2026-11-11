@@ -55,13 +55,18 @@ pub struct ScrollConfig {
     pub max_steps: u32,
 }
 
+/// The stitched image stays under 256 MB of RGBA (64 megapixels): the result is held in memory,
+/// copied for the PNG encode and handed to the editor, so a taller capture would cost more than
+/// the machine can spare for little gain.
+pub const SCROLL_MAX_PIXELS: u64 = 64_000_000;
+
 /// Tallest stitched image for a pane of `width` pixels that the rest of the app can still open:
 /// the result is registered like any capture, saved as PNG, reloaded from history and sent to the
 /// editor, and all of those refuse images beyond the decoder's per-side and pixel limits
 /// (`imgio::MAX_DIMENSION`, `imgio::MAX_PIXELS`). The media crate's own default (20 000 rows)
 /// would produce a capture that cannot be reopened from history.
 pub fn max_height_for_width(width: u32) -> u32 {
-    let by_pixels = crate::imgio::MAX_PIXELS / u64::from(width.max(1));
+    let by_pixels = SCROLL_MAX_PIXELS.min(crate::imgio::MAX_PIXELS) / u64::from(width.max(1));
     by_pixels.min(u64::from(crate::imgio::MAX_DIMENSION)) as u32
 }
 
@@ -405,7 +410,13 @@ mod tests {
         // Typical panes get the full side limit; very wide ones are limited by pixel count.
         assert_eq!(max_height_for_width(1920), MAX_DIMENSION);
         assert_eq!(max_height_for_width(3840), MAX_DIMENSION);
-        assert_eq!(max_height_for_width(16_384), 7_324);
+        assert_eq!(max_height_for_width(16_384), 3_906);
+        assert_eq!(max_height_for_width(7_680), 8_333);
+        // 256 MB of RGBA at most, whatever the width.
+        for width in [1u32, 800, 1920, 2560, 3840, 7680, 16_384] {
+            let bytes = u64::from(width) * u64::from(max_height_for_width(width)) * 4;
+            assert!(bytes <= 256 * 1024 * 1024, "width {width}: {bytes} bytes");
+        }
         assert_eq!(ScrollConfig::default().max_height, MAX_DIMENSION);
     }
 

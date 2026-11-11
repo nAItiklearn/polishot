@@ -18,11 +18,82 @@
   --pe-hairline: color-mix(in srgb, var(--ps-text) 10%, transparent);
 
   --pv-hair: color-mix(in srgb, var(--ps-text) 10%, transparent);
+  --pv-scrim: color-mix(in srgb, #000 30%, transparent);
+  --pv-key-bg: #2a2723;
+  --pv-key-fg: #f4efe6;
   /* Borders that identify a control need to be visible (WCAG 1.4.11): roughly 3:1 on the surface. */
   --pv-ctl: color-mix(in srgb, var(--ps-text) 42%, var(--ps-surface));
   /* Surfaces are mostly opaque so text stays AA on top of Mica, whatever the wallpaper. */
   --pv-glass: color-mix(in srgb, var(--ps-surface) 88%, transparent);
   --pv-chrome: color-mix(in srgb, var(--ps-bg) 64%, transparent);
+}
+
+/*
+ * Warm paper (owner direction, matches the website): cream surfaces, near-black ink, warm hairlines and
+ * shadows. The brand package still owns the accent; only the neutrals are warmed here, per theme, so the
+ * other desktop windows (overlay, pin) keep the plain tokens.
+ */
+:root[data-theme='light'] {
+  --ps-bg: #f7f2ea;
+  --ps-surface: #fffdf9;
+  --ps-surface-2: #efe8dc;
+  --ps-border: #e2d9c9;
+  --ps-text-2: #4a4841;
+  --ps-text-3: #63615a;
+  --ps-shadow-1: 0 1px 2px rgb(60 40 20 / 0.07), 0 1px 1px rgb(60 40 20 / 0.04);
+  --ps-shadow-2: 0 24px 60px -24px rgb(60 40 20 / 0.28), 0 3px 10px rgb(60 40 20 / 0.07);
+  --pv-hair: rgb(60 40 20 / 0.13);
+  --pv-scrim: rgb(40 28 14 / 0.34);
+  --pv-key-bg: #2a2723;
+  --pv-key-fg: #f4efe6;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --ps-bg: #f7f2ea;
+    --ps-surface: #fffdf9;
+    --ps-surface-2: #efe8dc;
+    --ps-border: #e2d9c9;
+    --ps-text-2: #4a4841;
+    --ps-text-3: #63615a;
+    --ps-shadow-1: 0 1px 2px rgb(60 40 20 / 0.07), 0 1px 1px rgb(60 40 20 / 0.04);
+    --ps-shadow-2: 0 24px 60px -24px rgb(60 40 20 / 0.28), 0 3px 10px rgb(60 40 20 / 0.07);
+    --pv-hair: rgb(60 40 20 / 0.13);
+    --pv-scrim: rgb(40 28 14 / 0.34);
+    --pv-key-bg: #2a2723;
+    --pv-key-fg: #f4efe6;
+  }
+}
+
+/* Dark: the same family, a step warmer than the shared tokens. */
+:root[data-theme='dark'] {
+  --ps-bg: #100f0d;
+  --ps-surface: #181714;
+  --ps-surface-2: #211f1b;
+  --ps-border: #302d28;
+  --ps-text: #f1ece3;
+  --ps-text-2: #aea89d;
+  --ps-text-3: #918b81;
+  --pv-hair: rgb(255 240 220 / 0.1);
+  --pv-scrim: rgb(0 0 0 / 0.5);
+  --pv-key-bg: #38352f;
+  --pv-key-fg: #f1ece3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ps-bg: #100f0d;
+    --ps-surface: #181714;
+    --ps-surface-2: #211f1b;
+    --ps-border: #302d28;
+    --ps-text: #f1ece3;
+    --ps-text-2: #aea89d;
+    --ps-text-3: #918b81;
+    --pv-hair: rgb(255 240 220 / 0.1);
+    --pv-scrim: rgb(0 0 0 / 0.5);
+    --pv-key-bg: #38352f;
+    --pv-key-fg: #f1ece3;
+  }
 }
 
 body {
@@ -61,9 +132,34 @@ body {
   padding: 0 8px 8px;
 }
 
+.pv-main {
+  position: relative;
+}
+
 .pv-main > * {
   flex: 1;
   min-height: 0;
+}
+
+/* A layer is a whole screen. The editor's keeps its size when hidden; the others lie over it. */
+.pv-layer {
+  display: flex;
+  flex-direction: column;
+}
+
+.pv-layer > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.pv-layer[data-active='false'] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pv-layer-over {
+  position: absolute;
+  inset: 0 8px 8px;
 }
 
 /* Visible focus for keyboard users only. */
@@ -164,6 +260,16 @@ body {
   padding-right: 4px;
 }
 
+.pv-titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pv-titlebar-actions[data-shown='false'] {
+  visibility: hidden;
+}
+
 .pv-tbtn {
   height: 28px;
   padding: 0 10px;
@@ -180,6 +286,7 @@ body {
 }
 
 .pv-pill {
+  min-width: 44px;
   height: 22px;
   margin-left: 4px;
   padding: 0 9px;
@@ -352,7 +459,8 @@ body {
   transform: translate(0, 0);
 }
 
-.pv-iconbtn:disabled .pv-tip {
+.pv-iconbtn:disabled .pv-tip,
+.pv-iconbtn[aria-expanded='true'] .pv-tip {
   display: none;
 }
 
@@ -364,14 +472,16 @@ body {
   gap: 3px;
 }
 
+/* Dark, rounded keycaps with a darker lower edge, like the website's. */
 .pv-kbd {
   display: inline-block;
-  min-width: 18px;
-  padding: 3px 5px;
-  border: 1px solid var(--pv-hair);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--ps-text) 7%, transparent);
-  color: var(--ps-text-2);
+  min-width: 19px;
+  padding: 3px 6px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--pv-key-bg);
+  box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.38);
+  color: var(--pv-key-fg);
   font-family: var(--pv-mono);
   font-size: 10.5px;
   font-weight: 500;
@@ -380,9 +490,10 @@ body {
   text-align: center;
 }
 
+/* On the dark tooltip a dark cap would vanish: use a soft tint of the tooltip's own text instead. */
 .pv-tip .pv-kbd {
-  border-color: transparent;
   background: color-mix(in srgb, currentColor 18%, transparent);
+  box-shadow: none;
   color: inherit;
 }
 
@@ -391,14 +502,12 @@ body {
 }
 
 .pv-keys-lg .pv-kbd {
-  min-width: 40px;
-  padding: 9px 13px;
-  border-radius: 8px;
-  background: var(--ps-surface);
-  color: var(--ps-text);
+  min-width: 44px;
+  padding: 11px 15px 13px;
+  border-radius: 10px;
   font-size: 15px;
   box-shadow:
-    0 1px 0 var(--pv-hair),
+    inset 0 -3px 0 rgb(0 0 0 / 0.38),
     var(--ps-shadow-1);
 }
 
@@ -439,6 +548,23 @@ body {
 /* While a capture loads, its canvas is hidden: never a stale picture, never a half-styled one. */
 .pv-canvas-card[data-phase='loading'] .pe-canvas-host {
   visibility: hidden;
+}
+
+/* The words sit in source-image pixels in one stage; the transform that follows the canvas is set from the editor's events. */
+.pv-textstage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  /* Its own layer: following the canvas then only composites, whatever the number of words. */
+  will-change: transform;
+}
+
+/* Over a drawn shape the recognised words step aside, so a click selects the shape (EditorView). */
+.pv-canvas-card[data-over-annotation='true'] .pe-word {
+  pointer-events: none !important;
 }
 
 /* The floating "Copy all text" button is replaced by the Text tab's own button. */
@@ -613,13 +739,25 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.pv-inspector-body {
+/* All opened panels share one box; only the active one is visible, so a tab switch never reflows anything. */
+.pv-panels {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.pv-inspector-body {
+  position: absolute;
+  inset: 0;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--ps-border) transparent;
+}
+
+.pv-inspector-body[data-active='false'] {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .pv-inspector-body:focus {
@@ -698,12 +836,14 @@ body {
 }
 
 /* Inside the editor window, ink carries selection and the only accent is the title bar's Copy button. */
-.pv-inspector .pe-btn-primary {
+.pv-inspector .pe-btn-primary,
+.pv-incoming .pe-btn-primary {
   background: var(--ps-text);
   color: var(--ps-bg);
 }
 
-.pv-inspector .pe-btn-primary:hover:not(:disabled) {
+.pv-inspector .pe-btn-primary:hover:not(:disabled),
+.pv-incoming .pe-btn-primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ps-text) 86%, var(--ps-bg));
 }
 
@@ -827,7 +967,7 @@ body {
   z-index: 50;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, #000 30%, transparent);
+  background: var(--pv-scrim);
   font-family: var(--pv-font);
   color: var(--ps-text);
   animation: pv-fade var(--ps-dur) var(--ps-ease);
@@ -855,8 +995,11 @@ body {
 
 .pv-dialog-title {
   margin: 0 0 8px;
-  font-size: 15px;
-  font-weight: 600;
+  font-family: var(--pv-serif);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.005em;
 }
 
 .pv-dialog-body {
@@ -1083,6 +1226,14 @@ body {
 
 .pv-search-input::placeholder {
   color: var(--ps-text-3);
+}
+
+.pv-hgroup + .pv-hgroup {
+  margin-top: 32px;
+}
+
+.pv-hgroup > .pv-group-title {
+  margin-bottom: 12px;
 }
 
 .pv-hgrid {
@@ -1583,6 +1734,10 @@ body {
   border-top: 1px solid var(--pv-hair);
 }
 
+.pv-compare[data-single='true'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .pv-compare {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1627,7 +1782,312 @@ body {
   color: var(--ps-text-2);
 }
 
+/* ---------------------------------------------------------------- menus */
+
+.pv-menu {
+  position: fixed;
+  z-index: 55;
+  min-width: 248px;
+  padding: 4px;
+  border: 1px solid var(--pv-hair);
+  border-radius: 10px;
+  background: var(--ps-surface);
+  box-shadow: var(--ps-shadow-2);
+  color: var(--ps-text);
+  font-family: var(--pv-font);
+  font-size: 13px;
+  animation: pv-rise var(--ps-dur) var(--ps-ease);
+}
+
+.pv-menu :focus-visible {
+  outline: 2px solid var(--ps-focus);
+  outline-offset: -2px;
+}
+
+.pv-menuitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pv-menuitem:hover:not([aria-disabled='true']),
+.pv-menuitem:focus-visible {
+  background: color-mix(in srgb, var(--ps-text) 8%, transparent);
+}
+
+.pv-menuitem.is-off {
+  color: var(--ps-text-3);
+  cursor: default;
+}
+
+.pv-menuitem-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-menuitem-note {
+  flex: none;
+  color: var(--ps-text-3);
+  font-size: 12px;
+}
+
+.pv-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--pv-hair);
+}
+
+/* ---------------------------------------------------------------- quick send: pairing and incoming */
+
+.pv-pair {
+  width: 400px;
+}
+
+.pv-pair-list {
+  margin: 0 0 16px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--pv-hair);
+  border-radius: 10px;
+  list-style: none;
+}
+
+.pv-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 8px 6px 14px;
+  color: var(--ps-text-2);
+}
+
+.pv-pair-row + .pv-pair-row {
+  border-top: 1px solid var(--pv-hair);
+}
+
+.pv-pair-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ps-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-pair-looking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px dashed var(--pv-ctl);
+  border-radius: 10px;
+  color: var(--ps-text-2);
+}
+
+.pv-pulse {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--ps-text-3);
+  animation: pv-pulse 1.4s ease-in-out infinite;
+}
+
+.pv-pair-looking .pv-pulse {
+  margin-right: 0;
+}
+
+.pv-pair-note {
+  margin: 0 0 20px;
+  color: var(--ps-text-3);
+  font-size: 12px;
+}
+
+.pv-pair-code {
+  margin: 8px 0 16px;
+  font-family: var(--pv-mono);
+  font-size: 40px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-align: center;
+  user-select: all;
+}
+
+.pv-pair-done {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+  color: var(--ps-text);
+}
+
+.pv-pair .pv-dialog-body {
+  margin-bottom: 16px;
+}
+
+.pv-incoming {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 58;
+  display: grid;
+  gap: 8px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.pv-incoming-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: start;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--pv-hair);
+  border-radius: 12px;
+  background: var(--ps-surface);
+  box-shadow: var(--ps-shadow-2);
+  color: var(--ps-text);
+  font-family: var(--pv-font);
+  pointer-events: auto;
+  animation: pv-toast-in var(--ps-dur) var(--ps-ease);
+}
+
+.pv-incoming-card > svg {
+  margin-top: 2px;
+  color: var(--ps-text-2);
+}
+
+.pv-incoming-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.pv-incoming-sub {
+  margin: 2px 0 0;
+  color: var(--ps-text-3);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.pv-incoming-actions {
+  display: flex;
+  grid-column: 2;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pv-incoming :focus-visible {
+  outline: 2px solid var(--ps-focus);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- batch beautify */
+
+.pv-batch {
+  width: 440px;
+}
+
+.pv-batch-files {
+  margin: 0 0 12px;
+  padding: 4px;
+  border: 1px solid var(--pv-hair);
+  border-radius: 10px;
+  background: var(--ps-surface-2);
+  list-style: none;
+}
+
+.pv-batch-files[data-scroll='true'] {
+  max-height: 148px;
+  overflow: auto;
+}
+
+.pv-batch-files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  color: var(--ps-text-2);
+  font-size: 12.5px;
+}
+
+.pv-batch-files li svg {
+  flex: none;
+  color: var(--ps-text-3);
+}
+
+.pv-batch-files li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-batch-note {
+  margin: 0 0 12px;
+  color: var(--ps-text-2);
+  font-size: 12px;
+}
+
+.pv-batch-field {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 20px;
+}
+
+.pv-batch .pe-select {
+  width: 100%;
+  border-color: var(--pv-ctl);
+}
+
+.pv-bar {
+  height: 4px;
+  margin: 0 0 20px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ps-text) 10%, transparent);
+}
+
+.pv-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ps-text);
+  transition: width var(--ps-dur) var(--ps-ease);
+}
+
 /* ---------------------------------------------------------------- motion */
+
+@keyframes pv-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 
 @keyframes pv-fade {
   from {
@@ -1653,6 +2113,8 @@ body {
   .pv-app *,
   .pv-scrim,
   .pv-scrim *,
+  .pv-menu,
+  .pv-incoming *,
   .pv-toasts * {
     animation: none !important;
     transition: none !important;

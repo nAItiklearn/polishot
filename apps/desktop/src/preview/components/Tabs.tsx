@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cx } from '../lib/format';
 
 export interface TabDef<T extends string> {
@@ -53,7 +53,7 @@ export function Tabs<T extends string>({
             role="tab"
             id={`${idPrefix}-tab-${t.id}`}
             aria-selected={selected}
-            aria-controls={`${idPrefix}-panel`}
+            aria-controls={`${idPrefix}-panel-${t.id}`}
             tabIndex={selected ? 0 : -1}
             className="pv-tab"
             onClick={() => onChange(t.id)}
@@ -71,10 +71,46 @@ export function Tabs<T extends string>({
   );
 }
 
-export function TabPanel({ idPrefix, active, children, className }: { idPrefix: string; active: string; children: ReactNode; className?: string }) {
+/**
+ * The panels of a tab set. A panel is built the first time its tab is opened and then kept, hidden with
+ * `visibility` (so it keeps its size and scroll position and costs nothing to show again): switching tabs is a
+ * change of two attributes, not a mount. Hidden panels are out of the tab order and the accessibility tree.
+ */
+export function TabPanels<T extends string>({
+  idPrefix,
+  active,
+  className,
+  render,
+  ids,
+}: {
+  idPrefix: string;
+  active: T;
+  /** Every tab id, in order. */
+  ids: readonly T[];
+  className?: string;
+  render: (id: T) => ReactNode;
+}) {
+  // Panels that have been opened at least once. The state is written during render, which React allows for
+  // values derived from props: it re-renders at once, before anything is painted.
+  const [opened, setOpened] = useState<ReadonlySet<T>>(() => new Set([active]));
+  if (!opened.has(active)) setOpened(new Set([...opened, active]));
   return (
-    <div id={`${idPrefix}-panel`} role="tabpanel" aria-labelledby={`${idPrefix}-tab-${active}`} className={cx('pv-tabpanel', className)} tabIndex={-1}>
-      {children}
+    <div className="pv-panels">
+      {ids.map((id) =>
+        opened.has(id) || id === active ? (
+          <div
+            key={id}
+            id={`${idPrefix}-panel-${id}`}
+            role="tabpanel"
+            aria-labelledby={`${idPrefix}-tab-${id}`}
+            className={cx('pv-tabpanel', className)}
+            data-active={id === active}
+            tabIndex={-1}
+          >
+            {render(id)}
+          </div>
+        ) : null,
+      )}
     </div>
   );
 }

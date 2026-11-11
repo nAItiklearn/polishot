@@ -89,7 +89,9 @@ The function is idempotent. Apps MUST still choose their own safe file path when
 ## 3. Identity and device id
 
 Each installation owns a long-term P-256 key pair `(IK_priv, IK_pub)`, generated once and stored by the app
-(Windows Credential Manager, Android Keystore-wrapped storage). Rotating it makes the device a new device.
+(Windows: a file under `%APPDATA%\Polishot\quicksend\` protected with DPAPI `CryptProtectData`, bound to the
+Windows user; Android: Keystore-wrapped storage). Rotating it makes the device a new device. A Windows identity file
+that cannot be unlocked is set aside, never deleted, and a new identity is created (the user is told to pair again).
 
 ```
 device_id = first 10 bytes of SHA-256(IK_pub)           (IK_pub is the 65-byte SEC1 encoding)
@@ -276,7 +278,8 @@ Recommended encoding (used by both libraries, `to_bytes`/`from_bytes`):
 format u8 = 1 ‖ peer_ik_pub(65) ‖ pair_key(32) ‖ str8(peer_name)         (peer_id is derived)
 ```
 
-The pair key is a secret: store it in the OS credential store or a keystore-wrapped file. Pairing is complete
+The pair key is a secret: store it protected by the OS (Windows: one DPAPI-protected file per pair record next to
+the identity; Android: a keystore-wrapped file). Pairing is complete
 for a side only when it holds the record; if the connection dies after one side persisted and before the other
 did, the user simply pairs again (the stale record is harmless: transfers from it are refused by the side that
 lacks it). "Unpair" is deleting the record locally; a device that was unpaired by its peer learns this the next

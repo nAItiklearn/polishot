@@ -17,6 +17,7 @@ use crate::grab;
 use crate::imgio;
 use crate::recorder;
 use crate::routes::{overlay_index, overlay_label};
+use crate::session;
 use crate::settings::AfterCapture;
 use crate::state::{register_capture, state, Mode, Purpose, Session};
 use crate::store::{CaptureMeta, Frame, Source};
@@ -99,6 +100,12 @@ fn start_blocking(
     if st.recording.lock().is_ok_and(|r| r.is_some()) {
         return Ok(());
     }
+    // One grab at a time: a double tap of the hotkey (or the hotkey and the tray item) would
+    // otherwise grab every monitor twice and race two sessions against each other.
+    let Some(_flight) = st.start_flight.try_begin() else {
+        tlog!("capture start ignored: another start is already grabbing the screen");
+        return Ok(());
+    };
     {
         let mut guard = st.session.lock().map_err(|_| "Capture is busy.")?;
         if let Some(s) = guard.as_ref() {
@@ -298,7 +305,24 @@ pub fn cancel(app: &AppHandle) {
 
 // ---- commit ----------------------------------------------------------------------------------
 
+/// A commit is done with the screen: drop its session and hide the overlays, but only while that
+/// session is still the current one. A window capture can take hundreds of milliseconds, long
+/// enough for the user to start a new capture; its session and overlays are not ours to remove.
+fn release_session(app: &AppHandle, nonce: u64) {
+    let (owns, old) = match state(app).session.lock() {
+        Ok(mut g) => session::release(&mut g, nonce),
+        Err(_) => (true, None),
+    };
+    if owns {
+        winmgr::hide_overlays(app);
+    }
+    // Freeing tens of megabytes of frames is not worth blocking the caller for.
+    std::thread::spawn(move || drop(old));
+}
+
 struct Snapshot {
+    /// Nonce of the session this commit came from; see `session::release`.
+    nonce: u64,
     purpose: Purpose,
     started: Instant,
     monitors: Vec<MonitorInfo>,
@@ -315,6 +339,7 @@ fn take_snapshot(app: &AppHandle) -> Result<Snapshot, String> {
     }
     s.committed = true;
     Ok(Snapshot {
+        nonce: s.nonce,
         purpose: s.purpose,
         started: s.started,
         monitors: s.monitors.clone(),
@@ -381,11 +406,10 @@ pub fn commit(app: &AppHandle, req: CommitRequest) -> Result<Option<CaptureMeta>
         Purpose::Scroll | Purpose::Gif => commit_recording(app, req, &snap).map(|()| None),
     };
     if result.is_err() {
-        // Allow another attempt: the overlay stays up and the session stays valid.
+        // Allow another attempt: the overlay stays up and the session stays valid. Only this
+        // commit's own session is reopened; a newer capture that started meanwhile is left alone.
         if let Ok(mut g) = state(app).session.lock() {
-            if let Some(s) = g.as_mut() {
-                s.committed = false;
-            }
+            session::reopen(&mut g, snap.nonce);
         }
     }
     result
@@ -421,9 +445,7 @@ fn commit_recording(app: &AppHandle, req: CommitRequest, snap: &Snapshot) -> Res
         (Purpose::Gif, _) => return Err("Drag the area to record.".to_string()),
         (Purpose::Capture, _) => return Err("Internal error: not a recording.".to_string()),
     }
-    winmgr::hide_overlays(app);
-    let old = state(app).session.lock().ok().and_then(|mut g| g.take());
-    std::thread::spawn(move || drop(old));
+    release_session(app, snap.nonce);
     tlog!("recording started from the overlay");
     Ok(())
 }
@@ -464,7 +486,7 @@ fn commit_capture(
         winmgr::show_preview(app);
     }
     tlog!("commit preview shown {:.1} ms", timing::ms(t_commit));
-    winmgr::hide_overlays(app);
+    release_session(app, snap.nonce);
     tlog!(
         "commit->preview shown {:.1} ms (crop {t_crop:.1} ms); hotkey->preview {:.1} ms",
         timing::ms(t_commit),
@@ -481,8 +503,6 @@ fn commit_capture(
         });
     }
 
-    let old = state(app).session.lock().ok().and_then(|mut g| g.take());
-    std::thread::spawn(move || drop(old));
     Ok(meta)
 }
 

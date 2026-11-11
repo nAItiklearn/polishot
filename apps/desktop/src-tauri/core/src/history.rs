@@ -17,6 +17,10 @@ pub const MAX_DOC_BYTES: usize = 8 * 1024 * 1024;
 const MAX_QUERY_TOKENS: usize = 8;
 const MAX_TOKEN_CHARS: usize = 64;
 const EXCERPT_CHARS: usize = 140;
+/// The history list reads only this many characters of each row's OCR text (enough for the
+/// excerpt even with plenty of whitespace). The full text can be tens of kilobytes per row, and a
+/// page of 500 rows used to drag all of it through the query.
+const EXCERPT_SOURCE_CHARS: usize = 600;
 const MAX_OCR_CHARS: usize = 200_000;
 
 /// `HistoryItem` from CONTRACTS section 5.
@@ -203,12 +207,13 @@ impl History {
         let rows = match &match_expr {
             Some(expr) => {
                 let mut stmt = conn
-                    .prepare(
-                        "SELECT c.id, c.created_at, c.width, c.height, c.doc_json IS NOT NULL, c.ocr_text
+                    .prepare(&format!(
+                        "SELECT c.id, c.created_at, c.width, c.height, c.doc_json IS NOT NULL,
+                                substr(c.ocr_text, 1, {EXCERPT_SOURCE_CHARS})
                          FROM captures_fts f JOIN captures c ON c.rowid = f.rowid
                          WHERE captures_fts MATCH ?1
-                         ORDER BY c.created_at DESC LIMIT ?2 OFFSET ?3",
-                    )
+                         ORDER BY c.created_at DESC LIMIT ?2 OFFSET ?3"
+                    ))
                     .map_err(db_err)?;
                 let it = stmt
                     .query_map(params![expr, limit, offset], map_row)
@@ -221,10 +226,11 @@ impl History {
                     return Ok(Vec::new());
                 }
                 let mut stmt = conn
-                    .prepare(
-                        "SELECT id, created_at, width, height, doc_json IS NOT NULL, ocr_text
-                         FROM captures ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
-                    )
+                    .prepare(&format!(
+                        "SELECT id, created_at, width, height, doc_json IS NOT NULL,
+                                substr(ocr_text, 1, {EXCERPT_SOURCE_CHARS})
+                         FROM captures ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
+                    ))
                     .map_err(db_err)?;
                 let it = stmt
                     .query_map(params![limit, offset], map_row)
@@ -456,6 +462,24 @@ mod tests {
         assert!(item.excerpt.starts_with("line one line two"));
         assert!(item.excerpt.ends_with("..."));
         assert!(item.excerpt.chars().count() <= EXCERPT_CHARS + 3);
+    }
+
+    #[test]
+    fn the_list_never_reads_more_than_the_start_of_each_text() {
+        let h = db();
+        // A very long text whose searchable word is at the end still matches, but the excerpt
+        // comes from the first characters only.
+        let long = format!("start {} needle", "filler ".repeat(5_000));
+        add(&h, "long", 1, &long);
+        let all = h.list(None, 10, 0).unwrap();
+        assert!(all[0].excerpt.starts_with("start filler"));
+        assert!(all[0].excerpt.chars().count() <= EXCERPT_CHARS + 3);
+        let found = h.list(Some("needle"), 10, 0).unwrap();
+        assert_eq!(ids(&found), ["long"], "search still sees the whole text");
+        assert!(!found[0].excerpt.contains("needle"));
+        // Short texts are untouched.
+        add(&h, "short", 2, "just this");
+        assert_eq!(h.list(Some("just"), 10, 0).unwrap()[0].excerpt, "just this");
     }
 
     #[test]

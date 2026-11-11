@@ -11,8 +11,11 @@ export interface Looks {
   list: UserPreset[];
   quota: PresetQuota;
   loadPresets: () => UserPreset[];
-  /** Undefined when saving is not possible right now (the Free limit is reached). */
-  onSavePreset: ((preset: Omit<UserPreset, 'id'>) => Promise<void>) | undefined;
+  /**
+   * Always provided: the Inspector draws the Free limit itself (the count, the note and the disabled field) and only
+   * does so when it has a way to save. The limit is still enforced here, by `addPreset`, in case anything else calls it.
+   */
+  onSavePreset: (preset: Omit<UserPreset, 'id'>) => Promise<void>;
   onDeletePreset: (id: string) => Promise<void>;
 }
 
@@ -63,5 +66,5 @@ export function useLooks(): Looks {
     [persist],
   );
 
-  return { list, quota, loadPresets, onSavePreset: quota.atLimit ? undefined : onSavePreset, onDeletePreset };
+  return { list, quota, loadPresets, onSavePreset, onDeletePreset };
 }

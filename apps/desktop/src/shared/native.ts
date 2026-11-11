@@ -17,6 +17,8 @@ export interface NativeApi {
   onResized(cb: () => void): Promise<Unlisten>;
   /** Image file chooser. Null when cancelled. */
   pickImage(): Promise<string | null>;
+  /** Image chooser that allows several files (batch). Empty when cancelled. */
+  pickImages(): Promise<string[]>;
   /** Folder chooser. Null when cancelled. */
   pickFolder(defaultPath?: string): Promise<string | null>;
   /** Save As chooser for an export. Null when cancelled. */
@@ -41,6 +43,15 @@ const tauriNative: NativeApi = {
       filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
     });
     return typeof r === 'string' ? r : null;
+  },
+
+  async pickImages() {
+    const r = await open({
+      multiple: true,
+      directory: false,
+      filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
+    });
+    return Array.isArray(r) ? r.filter((p): p is string => typeof p === 'string') : [];
   },
 
   async pickFolder(defaultPath) {

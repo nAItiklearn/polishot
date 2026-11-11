@@ -4,7 +4,6 @@ import {
   ExportPanel,
   Inspector,
   RedactPanel,
-  TextLayer,
   Toolbar,
   useEditorVersion,
   wordsToText,
@@ -12,12 +11,14 @@ import {
 } from '@polishot/editor/react';
 import type { Detection, OcrWord } from '@polishot/redact';
 import { Check, Copy, EyeOff, ImageUp } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Keys } from '../components/Keys';
-import { TabPanel, Tabs, type TabDef } from '../components/Tabs';
+import { TextOverlay } from '../components/TextOverlay';
+import { TabPanels, Tabs, type TabDef } from '../components/Tabs';
 import { useApp } from '../context';
 import type { CaptureState } from '../hooks/useCaptureSession';
 import type { Looks } from '../hooks/useLooks';
+import { annotationNear } from '../lib/annotationHit';
 import { actionDef } from '../lib/commands';
 import { plural } from '../lib/format';
 
@@ -68,6 +69,9 @@ function TextPanel({
   onRescan: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  // Rebuilt only when the words change: this panel stays mounted behind the others and re-renders with every edit.
+  const text = useMemo(() => (words && words.length > 0 ? wordsToText(words) : ''), [words]);
+  const lines = useMemo(() => text.split('\n').length, [text]);
   if (pending && !words) {
     return (
       <div className="pv-panel-pad">
@@ -87,8 +91,6 @@ function TextPanel({
       </div>
     );
   }
-  const text = wordsToText(words);
-  const lines = text.split('\n').length;
   const copy = async () => {
     await onCopy(text);
     setCopied(true);
@@ -111,20 +113,6 @@ function TextPanel({
         {!copied ? <Keys accelerator={actionDef('copy-text').shortcut} /> : null}
       </button>
       <p className="pe-hint">Or drag across the screenshot to select part of it.</p>
-    </div>
-  );
-}
-
-function LooksNote({ looks, onUpgrade }: { looks: Looks; onUpgrade: () => void }) {
-  if (!looks.quota.atLimit) return null;
-  return (
-    <div className="pv-note">
-      <p className="pe-hint">
-        You have saved all {looks.quota.limit} looks that Free includes.{' '}
-        <button type="button" className="pv-link" onClick={onUpgrade}>
-          Get Pro for unlimited.
-        </button>
-      </p>
     </div>
   );
 }
@@ -155,14 +143,20 @@ function InspectorPane({
   onRescan,
   onUpgrade,
 }: Pick<EditorViewProps, 'tab' | 'capture' | 'looks' | 'onExport' | 'onCopyText' | 'onRescan' | 'onUpgrade'> & { editor: Editor }) {
-  const { settings, ent } = useApp();
+  const { settings, ent, setBrandMark } = useApp();
   switch (tab) {
     case 'style':
+      // The Inspector owns the saved-looks limit note and the Pro brand mark row; the host persists them.
       return (
-        <>
-          <Inspector editor={editor} loadPresets={looks.loadPresets} onSavePreset={looks.onSavePreset} onDeletePreset={looks.onDeletePreset} />
-          <LooksNote looks={looks} onUpgrade={onUpgrade} />
-        </>
+        <Inspector
+          editor={editor}
+          pro={ent.pro}
+          onUpgrade={onUpgrade}
+          onBrandMarkChange={(mark) => void setBrandMark(mark)}
+          loadPresets={looks.loadPresets}
+          onSavePreset={looks.onSavePreset}
+          onDeletePreset={looks.onDeletePreset}
+        />
       );
     case 'redact':
       return <RedactPanel editor={editor} words={capture.words} scanning={capture.ocr === 'pending'} onScan={onRescan} />;
@@ -199,6 +193,48 @@ function InspectorPane({
 export function EditorView({ capture, tab, onTab, detections, looks, dragging, onExport, onCopyText, onRescan, onUpgrade }: EditorViewProps) {
   const { editor, settings } = useApp();
   useEditorVersion(editor);
+  const cardRef = useRef<HTMLElement>(null);
+
+  /**
+   * The recognised text lies above the canvas so it can be selected, and takes every click while the Select tool
+   * has nothing selected. Over a shape or note the words step aside instead, so the shape can still be clicked.
+   * The answer is kept as an attribute (no re-render per pointer move) and refreshed when the pointer moves or the
+   * tool, selection or document changes under a pointer that is standing still.
+   */
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const refreshAnnotationHover = useCallback(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const notes = editor.doc.annotations;
+    const at = pointer.current;
+    let over = false;
+    if (at && notes.length > 0 && editor.tool === 'select' && editor.selectedId === null) {
+      const host = editor.element.getBoundingClientRect();
+      const scale = editor.imageRectToScreen({ x: 0, y: 0, w: 1, h: 1 }).w;
+      over = annotationNear(
+        notes,
+        editor.doc.image,
+        {
+          toScreen: (p) => {
+            const r = editor.imageRectToScreen({ x: p.x, y: p.y, w: 0, h: 0 });
+            return { x: r.x, y: r.y };
+          },
+          scale,
+        },
+        { x: at.x - host.left, y: at.y - host.top },
+      );
+    }
+    const value = over ? 'true' : 'false';
+    if (card.dataset.overAnnotation !== value) card.dataset.overAnnotation = value;
+  }, [editor]);
+  const trackAnnotationHover = (e: ReactPointerEvent<HTMLElement>) => {
+    pointer.current = { x: e.clientX, y: e.clientY };
+    refreshAnnotationHover();
+  };
+  useEffect(() => {
+    const offs = [editor.on('tool', refreshAnnotationHover), editor.on('select', refreshAnnotationHover), editor.on('change', refreshAnnotationHover)];
+    return () => offs.forEach((off) => off());
+  }, [editor, refreshAnnotationHover]);
   const hasCapture = capture.meta !== null && capture.phase !== 'error';
   const ready = capture.phase === 'ready';
 
@@ -224,10 +260,17 @@ export function EditorView({ capture, tab, onTab, detections, looks, dragging, o
 
   return (
     <div className="pv-editor" data-has-capture={hasCapture}>
-      <section className="pv-card pv-canvas-card" aria-label="Canvas" data-phase={capture.phase} data-reveal-text={tab === 'text'}>
+      <section
+        ref={cardRef}
+        className="pv-card pv-canvas-card"
+        aria-label="Canvas"
+        data-phase={capture.phase}
+        data-reveal-text={tab === 'text'}
+        onPointerMove={trackAnnotationHover}
+      >
         {hasCapture ? (
           <EditorCanvas editor={editor}>
-            <TextLayer editor={editor} words={capture.words} onCopyText={onCopyText} />
+            <TextOverlay editor={editor} words={capture.words} />
             <FoundChip editor={editor} pending={pending} />
             <Toolbar editor={editor} />
           </EditorCanvas>
@@ -242,18 +285,24 @@ export function EditorView({ capture, tab, onTab, detections, looks, dragging, o
           <div className="pv-inspector-tabs">
             <Tabs tabs={tabs} value={tab} onChange={onTab} label="Inspector sections" idPrefix="pv-insp" />
           </div>
-          <TabPanel idPrefix="pv-insp" active={tab} className="pv-inspector-body">
-            <InspectorPane
-              editor={editor}
-              tab={tab}
-              capture={capture}
-              looks={looks}
-              onExport={onExport}
-              onCopyText={onCopyText}
-              onRescan={onRescan}
-              onUpgrade={onUpgrade}
-            />
-          </TabPanel>
+          <TabPanels
+            idPrefix="pv-insp"
+            active={tab}
+            ids={TAB_IDS}
+            className="pv-inspector-body"
+            render={(id) => (
+              <InspectorPane
+                editor={editor}
+                tab={id}
+                capture={capture}
+                looks={looks}
+                onExport={onExport}
+                onCopyText={onCopyText}
+                onRescan={onRescan}
+                onUpgrade={onUpgrade}
+              />
+            )}
+          />
         </aside>
       ) : null}
     </div>

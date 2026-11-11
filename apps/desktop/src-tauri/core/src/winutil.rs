@@ -2,14 +2,21 @@
 
 use std::ffi::c_void;
 
-use windows::core::{BOOL, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
+use windows::core::{w, BOOL, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
 };
 use windows::Win32::Graphics::Gdi::{
     ClientToScreen, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
 };
+use windows::Win32::NetworkManagement::IpHelper::{
+    GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
+    IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_UNICAST_ADDRESS_LH,
+};
+use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+use windows::Win32::Networking::WinSock::{SOCKADDR_IN, SOCKADDR_IN6};
+use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -375,20 +382,103 @@ pub fn parse_reg_dword(text: &str) -> Option<u32> {
 }
 
 /// True when the Windows taskbar (and so the tray) uses the light theme; `None` if unknown.
+/// Read straight from the registry: no child process, so it is safe to call on the UI thread
+/// during start-up.
 pub fn taskbar_is_light() -> Option<bool> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new(windows_program(r"System32\reg.exe"))
-        .args([
-            "query",
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-            "/v",
-            "SystemUsesLightTheme",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    parse_reg_dword(&String::from_utf8_lossy(&out.stdout)).map(|v| v != 0)
+    let mut value: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    // SAFETY: `value` and `size` outlive the call and `size` is the byte size of `value`.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"),
+            w!("SystemUsesLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some((&mut value as *mut u32).cast::<c_void>()),
+            Some(&mut size),
+        )
+    };
+    (status == ERROR_SUCCESS).then_some(value != 0)
+}
+
+/// The IP address and prefix length of every address on every adapter that is up (loopback and
+/// tunnel-less pseudo adapters excluded). Empty when the list cannot be read; callers then fall
+/// back to range checks alone.
+pub fn local_subnets() -> Vec<(std::net::IpAddr, u8)> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    const AF_UNSPEC: u32 = 0;
+    const AF_INET: u16 = 2;
+    const AF_INET6: u16 = 23;
+    const IF_TYPE_SOFTWARE_LOOPBACK: u32 = 24;
+    const ERROR_BUFFER_OVERFLOW: u32 = 111;
+    let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+
+    // The list is a variable-length chain of structs; 8-byte words keep the buffer aligned.
+    let mut words: Vec<u64> = vec![0; 4096];
+    let mut size = (words.len() * 8) as u32;
+    for _ in 0..3 {
+        // SAFETY: the buffer is at least `size` bytes and aligned for the adapter structs.
+        let rc = unsafe {
+            GetAdaptersAddresses(
+                AF_UNSPEC,
+                flags,
+                None,
+                Some(words.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>()),
+                &mut size,
+            )
+        };
+        if rc == ERROR_BUFFER_OVERFLOW {
+            words = vec![0; (size as usize).div_ceil(8) + 8];
+            size = (words.len() * 8) as u32;
+            continue;
+        }
+        if rc != 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut adapter = words.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        // SAFETY: GetAdaptersAddresses filled the buffer with a valid chain; every pointer below
+        // points inside it, and the buffer lives until the end of this block.
+        unsafe {
+            while !adapter.is_null() {
+                let a = &*adapter;
+                if a.OperStatus == IfOperStatusUp && a.IfType != IF_TYPE_SOFTWARE_LOOPBACK {
+                    let mut u = a.FirstUnicastAddress as *const IP_ADAPTER_UNICAST_ADDRESS_LH;
+                    while !u.is_null() {
+                        let ua = &*u;
+                        let sa = ua.Address.lpSockaddr;
+                        if !sa.is_null() {
+                            match (*sa).sa_family.0 {
+                                AF_INET => {
+                                    let v4 = &*(sa as *const SOCKADDR_IN);
+                                    let octets = v4.sin_addr.S_un.S_addr.to_ne_bytes();
+                                    out.push((
+                                        IpAddr::V4(Ipv4Addr::from(octets)),
+                                        ua.OnLinkPrefixLength,
+                                    ));
+                                }
+                                AF_INET6 => {
+                                    let v6 = &*(sa as *const SOCKADDR_IN6);
+                                    let octets = v6.sin6_addr.u.Byte;
+                                    out.push((
+                                        IpAddr::V6(Ipv6Addr::from(octets)),
+                                        ua.OnLinkPrefixLength,
+                                    ));
+                                }
+                                _ => {}
+                            }
+                        }
+                        u = ua.Next;
+                    }
+                }
+                adapter = a.Next;
+            }
+        }
+        return out;
+    }
+    Vec::new()
 }
 
 #[cfg(test)]

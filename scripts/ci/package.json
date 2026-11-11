@@ -1,0 +1,8 @@
+{
+  "name": "@polishot/ci-scripts",
+  "private": true,
+  "description": "CI and release helper scripts. Only upload-blob.mjs has a dependency; the others use Node built-ins. A devDependency because nothing here ships in a product, so `pnpm audit --prod` does not cover it.",
+  "devDependencies": {
+    "@vercel/blob": "2.8.2"
+  }
+}

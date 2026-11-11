@@ -2,13 +2,17 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 
-const REPO = process.env.NEXT_PUBLIC_GITHUB_REPO ?? 'owner/polishot';
-const BASE = `https://github.com/${REPO}/releases/latest/download`;
+const BASE = process.env.NEXT_PUBLIC_DOWNLOAD_BASE_URL?.replace(/\/+$/, '');
 
 test.describe('pricing', () => {
-  test.skip(!!process.env.NEXT_PUBLIC_CHECKOUT_URL, 'These assertions are for the not-on-sale state.');
+  test.skip(
+    !!process.env.NEXT_PUBLIC_CHECKOUT_URL,
+    'These assertions are for the not-on-sale state.',
+  );
 
-  test('the buy button is disabled and says so while the checkout URL is empty', async ({ page }) => {
+  test('the buy button is disabled and says so while the checkout URL is empty', async ({
+    page,
+  }) => {
     await page.goto('/pricing');
     const button = page.getByRole('button', { name: 'On sale soon' });
     await expect(button).toBeVisible();
@@ -38,7 +42,10 @@ test.describe('pricing', () => {
     await expect(
       page.getByText('Keep every version released within a year of purchase, forever.'),
     ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Download free' })).toHaveAttribute('href', '/download');
+    await expect(page.getByRole('link', { name: 'Download free' })).toHaveAttribute(
+      'href',
+      '/download',
+    );
   });
 
   test('FAQ answers open and close', async ({ page }) => {
@@ -61,7 +68,8 @@ test.describe('pricing', () => {
 });
 
 test.describe('download', () => {
-  test('links point at the latest GitHub release assets with the agreed file names', async ({ page }) => {
+  test('with a download host, links point at it with the agreed file names', async ({ page }) => {
+    test.skip(!BASE, 'NEXT_PUBLIC_DOWNLOAD_BASE_URL is not set for this build.');
     await page.goto('/download');
     await expect(page.getByRole('link', { name: 'Installer (.exe)' })).toHaveAttribute(
       'href',
@@ -75,16 +83,26 @@ test.describe('download', () => {
       'href',
       `${BASE}/Polishot.apk`,
     );
-    await expect(page.getByRole('link', { name: /All releases on GitHub/ })).toHaveAttribute(
-      'href',
-      `https://github.com/${REPO}/releases`,
-    );
   });
 
-  test('warns about SmartScreen and lists system requirements for both platforms', async ({ page }) => {
+  test('without a download host, nothing links anywhere and the page says so', async ({ page }) => {
+    test.skip(!!BASE, 'A download host is configured for this build.');
+    await page.goto('/download');
+    for (const name of ['Installer (.exe)', 'MSI package (.msi)', 'Download APK (.apk)']) {
+      await expect(page.getByRole('button', { name })).toBeDisabled();
+      await expect(page.getByRole('link', { name })).toHaveCount(0);
+    }
+    await expect(page.getByText(/switch on when the first release is published/)).toBeVisible();
+  });
+
+  test('warns about SmartScreen and lists system requirements for both platforms', async ({
+    page,
+  }) => {
     await page.goto('/download');
     await expect(page.getByText(/SmartScreen may say it protected your PC/)).toBeVisible();
-    await expect(page.locator('#windows').getByText('Windows 10 or 11, 64-bit.').first()).toBeVisible();
+    await expect(
+      page.locator('#windows').getByText('Windows 10 or 11, 64-bit.').first(),
+    ).toBeVisible();
     await expect(page.locator('#android').getByText('Android 10 (API 29) or later.')).toBeVisible();
   });
 

@@ -209,9 +209,10 @@ export function validateAccelerator(accelerator: string, opts: { allowEmpty?: bo
   const text = accelerator.trim();
   if (!text) return opts.allowEmpty ? null : 'Choose a shortcut.';
   const p = parseAccelerator(text);
-  if (!p) return 'That is not a shortcut this app can register. Try a letter, number or function key with Ctrl, Alt or Shift.';
-  if (!(p.ctrl || p.alt || p.shift || p.super)) {
-    return 'Include Ctrl, Alt or Shift so the shortcut does not get in the way of typing.';
+  if (!p) return 'That is not a shortcut this app can register. Try a letter, number or function key with Ctrl or Alt.';
+  // Shift or the Windows key alone would catch ordinary typing or belong to the shell: the backend refuses them too.
+  if (!(p.ctrl || p.alt)) {
+    return 'Include Ctrl or Alt, for example Ctrl+Shift+2, so the shortcut does not get in the way of typing.';
   }
   return null;
 }

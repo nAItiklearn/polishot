@@ -137,7 +137,12 @@ pub fn grab_gdi(bounds: IRect) -> Result<Frame, String> {
         let mut bits: *mut c_void = std::ptr::null_mut();
         let section = CreateDIBSection(Some(mem), &info, DIB_RGB_COLORS, &mut bits, None, 0);
         let result = match section {
-            Ok(bmp) if !bits.is_null() => {
+            Ok(bmp) if bits.is_null() => {
+                // A bitmap without pixels is useless, but it is still a GDI object to release.
+                let _ = DeleteObject(bmp.into());
+                Err("Could not allocate a screen buffer.".to_string())
+            }
+            Ok(bmp) => {
                 let old = SelectObject(mem, bmp.into());
                 let blit = BitBlt(
                     mem,

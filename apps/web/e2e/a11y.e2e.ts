@@ -4,7 +4,14 @@ import { PAGES } from './pages';
 
 async function scan(page: Page) {
   await page.evaluate(() => document.fonts.ready);
-  const results = await new AxeBuilder({ page }).analyze();
+  // Every rule on everything, except colour contrast inside [data-illustration]: the live demos draw mock
+  // app screens, which WCAG 1.4.3 treats as text that is part of a picture. Their controls are still checked.
+  const all = await new AxeBuilder({ page }).disableRules(['color-contrast']).analyze();
+  const contrast = await new AxeBuilder({ page })
+    .withRules(['color-contrast'])
+    .exclude('[data-illustration]')
+    .analyze();
+  const results = { violations: [...all.violations, ...contrast.violations] };
   return results.violations.map((v) => ({
     id: v.id,
     impact: v.impact,
@@ -13,11 +20,11 @@ async function scan(page: Page) {
   }));
 }
 
-// The site is dark only, so there is one theme to check.
+// The site has one theme (light paper), so there is one theme to check.
 for (const { path, name } of PAGES) {
   test(`axe: ${name} has no violations`, async ({ page }) => {
     await page.goto(path);
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await page.waitForTimeout(300);
 
     const violations = await scan(page);

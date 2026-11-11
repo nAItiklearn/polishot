@@ -13,7 +13,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
-use crate::export::{query_escape, unique_path};
+use crate::export::{query_escape, reserve_unique};
 use crate::geometry::IRect;
 use crate::gifrec::{self, RecordConfig, RecordEnd};
 use crate::ids::now_millis;
@@ -51,6 +51,23 @@ fn end_job(app: &AppHandle) {
     }
 }
 
+/// Frees the "recording in progress" slot when dropped, also if the worker thread panics. Without
+/// this a panic would leave the slot taken and no scroll capture or recording could ever start
+/// again in this session.
+struct JobGuard(AppHandle);
+
+impl JobGuard {
+    fn new(app: &AppHandle) -> Self {
+        Self(app.clone())
+    }
+}
+
+impl Drop for JobGuard {
+    fn drop(&mut self) {
+        end_job(&self.0);
+    }
+}
+
 /// Ask the running scroll capture or GIF recording to finish (no-op when idle).
 pub fn stop(app: &AppHandle) {
     if let Ok(slot) = state(app).recording.lock() {
@@ -73,11 +90,11 @@ fn open_status(app: &AppHandle, spec: StatusSpec<'_>) -> Result<WebviewWindow, S
     if let Some(old) = app.get_webview_window(spec.label) {
         let _ = old.destroy();
     }
-    let win = WebviewWindowBuilder::new(
+    let win = winmgr::harden(WebviewWindowBuilder::new(
         app,
         spec.label,
         WebviewUrl::App(format!("status.html?{}", spec.query).into()),
-    )
+    ))
     .title("")
     .decorations(false)
     .transparent(true)
@@ -146,8 +163,9 @@ pub fn start_scroll(app: &AppHandle, win: WinEntry, monitor: MonitorInfo) -> Res
     let stop = begin_job(app)?;
     let app = app.clone();
     std::thread::spawn(move || {
+        let job = JobGuard::new(&app);
         let outcome = run_scroll(&app, &win, &monitor, stop);
-        end_job(&app);
+        drop(job);
         if let Err(e) = outcome {
             tlog!("scroll capture failed: {e}");
             show_toast(&app, &monitor, "error", "", 0, "", &e);
@@ -245,10 +263,11 @@ pub fn start_gif(app: &AppHandle, region: IRect, monitor: MonitorInfo) -> Result
     let stop = begin_job(app)?;
     let app = app.clone();
     std::thread::spawn(move || {
+        let job = JobGuard::new(&app);
         let outcome = run_gif(&app, region, &monitor, &folder, stop);
         close_status(&app, "status-border");
         close_status(&app, "status-controls");
-        end_job(&app);
+        drop(job);
         match outcome {
             Ok((path, bytes)) => {
                 let name = path
@@ -286,8 +305,8 @@ fn run_gif(
     std::fs::create_dir_all(&dir)
         .map_err(|_| "The save folder could not be created.".to_string())?;
     let name = gifrec::recording_file_name(now_millis() / 1000);
-    let path = unique_path(&dir, &name, |p| p.exists());
-    let file = std::fs::File::create(&path)
+    // The name is claimed exclusively, so two recordings in the same second get different files.
+    let (path, file) = reserve_unique(&dir, &name)
         .map_err(|_| "The recording could not be saved to the save folder.".to_string())?;
 
     // Recording frame just outside the region, and the controls beside it.

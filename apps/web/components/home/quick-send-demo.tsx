@@ -38,11 +38,11 @@ export function QuickSendDemo() {
   const { step } = clock;
 
   return (
-    <div ref={clock.ref} className="qs-scene" data-demo="" data-step={step}>
+    <div ref={clock.ref} className="qs-scene" data-demo="" data-illustration="" data-step={step}>
       {/* Phone */}
       <div className="qs-phone">
         <div className="qs-phone-screen">
-          <p className="flex items-center justify-between text-[11px] text-[#8a8378]">
+          <p className="flex items-center justify-between text-[11px] text-[#6c665c]">
             <span>9:41</span>
             <Wifi className="size-3" aria-hidden="true" />
           </p>
@@ -52,12 +52,7 @@ export function QuickSendDemo() {
             <Lock className="size-3" aria-hidden="true" />
             Paired with Studio PC
           </p>
-          <button
-            type="button"
-            onClick={() => clock.goTo(1)}
-            className="qs-send"
-            aria-label="Send the image to the PC"
-          >
+          <button type="button" onClick={() => clock.goTo(1)} className="qs-send">
             <Send className="size-3.5" aria-hidden="true" />
             {step === 1 ? 'Sending' : step >= 2 ? 'Sent' : 'Send'}
           </button>
@@ -75,8 +70,8 @@ export function QuickSendDemo() {
       <div className="qs-pc">
         <div className="mock-bar">
           <LogoMark className="size-4" />
-          <span className="ml-2 text-[12.5px] text-[#8a8378]">Polishot</span>
-          <span className="ml-auto font-mono text-[11px] tracking-[0.16em] text-[#a59d90]">
+          <span className="ml-2 text-[12.5px] text-[#6c665c]">Polishot</span>
+          <span className="ml-auto font-mono text-[11px] tracking-[0.16em] text-[#857d71]">
             482 913
           </span>
         </div>

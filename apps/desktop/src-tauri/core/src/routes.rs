@@ -34,6 +34,20 @@ pub fn parse_route(path: &str) -> Option<Route<'_>> {
     }
 }
 
+/// Whether a webview may navigate to this URL: only the app's own pages. Release builds serve
+/// them from `tauri://localhost` or `http(s)://tauri.localhost`; debug builds also load the Vite
+/// dev server on port 1420. Everything else (a link, a redirect, `window.location`) is blocked, so
+/// a bug that lets foreign content navigate a window cannot hand it the app's IPC.
+pub fn is_app_origin(scheme: &str, host: Option<&str>, port: Option<u16>, dev: bool) -> bool {
+    match (scheme, host) {
+        ("tauri", _) => true,
+        ("http" | "https", Some("tauri.localhost")) => port.is_none(),
+        ("http", Some("127.0.0.1" | "localhost")) => dev && port == Some(1420),
+        ("about", _) => true,
+        _ => false,
+    }
+}
+
 /// Which webview labels may fetch a route: a frozen frame only by its own overlay, everything
 /// else by the preview and pin windows.
 pub fn allowed(route: &Route<'_>, label: &str) -> bool {
@@ -54,6 +68,37 @@ pub fn overlay_index(label: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_apps_own_pages_may_be_navigated_to() {
+        use super::is_app_origin as ok;
+        assert!(ok("tauri", Some("localhost"), None, false));
+        assert!(ok("http", Some("tauri.localhost"), None, false));
+        assert!(ok("https", Some("tauri.localhost"), None, false));
+        assert!(ok("about", None, None, false));
+        // The dev server is trusted in debug builds only, and only on its port.
+        assert!(ok("http", Some("127.0.0.1"), Some(1420), true));
+        assert!(ok("http", Some("localhost"), Some(1420), true));
+        assert!(!ok("http", Some("127.0.0.1"), Some(1420), false));
+        assert!(!ok("http", Some("127.0.0.1"), Some(8080), true));
+        assert!(!ok("https", Some("127.0.0.1"), Some(1420), true));
+        // Foreign content, look-alikes, and other schemes.
+        for (scheme, host, port) in [
+            ("https", Some("polishot.cam"), None),
+            ("https", Some("evil.example"), None),
+            ("http", Some("tauri.localhost.evil.example"), None),
+            ("http", Some("evil-tauri.localhost"), None),
+            ("http", Some("tauri.localhost"), Some(8080)),
+            ("http", Some("polishot.localhost"), None),
+            ("file", None, None),
+            ("javascript", None, None),
+            ("data", None, None),
+            ("blob", None, None),
+            ("ftp", Some("tauri.localhost"), None),
+        ] {
+            assert!(!ok(scheme, host, port, true), "{scheme} {host:?} {port:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

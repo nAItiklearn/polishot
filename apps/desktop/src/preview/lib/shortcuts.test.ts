@@ -59,12 +59,16 @@ describe('validateAccelerator (same rules as Settings::validate)', () => {
     expect(validateAccelerator('Ctrl+Shift+2')).toBeNull();
     expect(validateAccelerator('alt+f9')).toBeNull();
     expect(validateAccelerator('CommandOrControl+Shift+S')).toBeNull();
-    expect(validateAccelerator('Super+Up')).toBeNull();
+    expect(validateAccelerator('Ctrl+Alt+Up')).toBeNull();
   });
 
-  it('requires a modifier, so a shortcut cannot hijack typing', () => {
-    expect(validateAccelerator('A')).toMatch(/Ctrl, Alt or Shift/);
-    expect(validateAccelerator('F9')).toMatch(/Ctrl, Alt or Shift/);
+  it('requires Ctrl or Alt, so a shortcut cannot hijack typing or the shell', () => {
+    expect(validateAccelerator('A')).toMatch(/Ctrl or Alt/);
+    expect(validateAccelerator('F9')).toMatch(/Ctrl or Alt/);
+    // Shift alone only types capitals; the Windows key alone belongs to Windows. The backend refuses both.
+    expect(validateAccelerator('Shift+F9')).toMatch(/Ctrl or Alt/);
+    expect(validateAccelerator('Super+Up')).toMatch(/Ctrl or Alt/);
+    expect(validateAccelerator('Shift+Super+S')).toMatch(/Ctrl or Alt/);
   });
 
   it('rejects unknown keys, two keys, a key before a modifier, and junk', () => {

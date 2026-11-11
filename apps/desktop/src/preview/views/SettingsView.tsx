@@ -8,9 +8,11 @@ import { IconButton } from '../components/IconButton';
 import { ShortcutRecorder } from '../components/ShortcutRecorder';
 import { ViewHeader } from '../components/ViewHeader';
 import { useApp } from '../context';
+import type { QuickSend } from '../hooks/useQuickSend';
 import { useLooks } from '../hooks/useLooks';
 import { FREE_PRESET_LIMIT } from '../lib/entitlement';
 import { middleEllipsis } from '../lib/format';
+import { pairedDevices } from '../lib/quicksend';
 import { DEFAULT_PRESET_CHOICES } from '../session';
 import { native } from '../../shared/native';
 import type { AfterCapture, ImageFormat, Settings, ThemeSetting } from '../../shared/ipc';
@@ -66,11 +68,12 @@ function QualitySlider({ value, disabled, onCommit }: { value: number; disabled:
 }
 
 export interface SettingsViewProps {
+  qs: QuickSend;
   onBack: () => void;
   onUpgrade: () => void;
 }
 
-export function SettingsView({ onBack, onUpgrade }: SettingsViewProps) {
+export function SettingsView({ qs, onBack, onUpgrade }: SettingsViewProps) {
   const { settings, updateSettings, notify, info, ent } = useApp();
   const looks = useLooks();
   const presetId = useId();
@@ -114,10 +117,10 @@ export function SettingsView({ onBack, onUpgrade }: SettingsViewProps) {
             <SettingRow title="Capture" description="Works from anywhere in Windows.">
               <ShortcutRecorder label="Capture shortcut" value={settings.shortcut} onCommit={shortcut('shortcut')} notice={conflict} />
             </SettingRow>
-            <SettingRow title="Scrolling capture" description="Optional.">
+            <SettingRow title="Scrolling capture" description="Scrolls a window and stitches it into one tall image.">
               <ShortcutRecorder label="Scrolling capture shortcut" value={settings.scrollShortcut} optional onCommit={shortcut('scrollShortcut')} />
             </SettingRow>
-            <SettingRow title="GIF recording" description="Optional.">
+            <SettingRow title="GIF recording" description="Records a region for up to 15 seconds.">
               <ShortcutRecorder label="GIF recording shortcut" value={settings.gifShortcut} optional onCommit={shortcut('gifShortcut')} />
             </SettingRow>
           </SettingGroup>
@@ -214,7 +217,22 @@ export function SettingsView({ onBack, onUpgrade }: SettingsViewProps) {
             </SettingRow>
           </SettingGroup>
 
-          <BrandMarkSetting onUpgrade={onUpgrade} />
+          <SettingGroup title="Phone">
+            <SettingRow title="Quick send" description="Send captures to your phone over Wi-Fi. They never leave your network.">
+              <button type="button" className="pe-btn" onClick={qs.openPairing}>
+                Pair a phone
+              </button>
+            </SettingRow>
+            {pairedDevices(qs.devices).map((d) => (
+              <SettingRow key={d.id} title={d.name} description={d.online ? 'Nearby' : 'Not nearby right now'}>
+                <button type="button" className="pe-btn pe-btn-quiet" aria-label={`Forget ${d.name}`} onClick={() => void qs.forget(d)}>
+                  Forget
+                </button>
+              </SettingRow>
+            ))}
+          </SettingGroup>
+
+          <BrandMarkSetting />
 
           <p className="pv-about">
             {APP_NAME} {info?.version ?? ''}

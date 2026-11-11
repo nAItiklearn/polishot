@@ -46,11 +46,11 @@ pub fn open(app: &AppHandle, id: &str) -> Result<(), String> {
     let (lw, lh) = fit_size(w, h, mon.scale, mon.bounds.w, mon.bounds.h);
     let (min_w, min_h) = min_size(lw, lh);
 
-    let win: WebviewWindow = WebviewWindowBuilder::new(
+    let win: WebviewWindow = crate::winmgr::harden(WebviewWindowBuilder::new(
         app,
         &label,
         WebviewUrl::App(format!("pin.html?id={id}").into()),
-    )
+    ))
     .title("")
     .decorations(false)
     .transparent(true)
