@@ -151,7 +151,9 @@ class CaptureService : Service() {
         releaseProjection() // a second consent while a session runs replaces it
         try {
             val manager = getSystemService(MediaProjectionManager::class.java)
+            // The framework annotates the result @Nullable on newer API levels; treat null like any other failure.
             val p = manager.getMediaProjection(resultCode, data)
+                ?: throw IllegalStateException("MediaProjection unavailable")
             val callback = object : MediaProjection.Callback() {
                 override fun onStop() {
                     // The user ended sharing from the system chip, or the system revoked it.

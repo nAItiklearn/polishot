@@ -27,6 +27,8 @@ pub fn create_preview(app: &AppHandle) -> Result<WebviewWindow, String> {
         .center()
         .visible(false)
         .focused(false)
+        // The preview draws its own title bar and window controls (CONTRACT-CHANGES, preview UI).
+        .decorations(false)
         .transparent(true)
         .build()
         .map_err(|e| format!("Could not create the preview window: {e}"))?;

@@ -71,6 +71,84 @@ pub fn save_export(folder: &Path, bytes: &[u8], filename: &str) -> Result<PathBu
     Ok(target)
 }
 
+/// Decode the output of JavaScript's `encodeURIComponent`: `%XX` escapes, strict UTF-8.
+pub fn percent_decode(s: &str) -> Result<String, String> {
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+    let bad = || "The save location is not valid.".to_string();
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let (h, l) = match (b.get(i + 1), b.get(i + 2)) {
+                (Some(&h), Some(&l)) => (hex(h).ok_or_else(bad)?, hex(l).ok_or_else(bad)?),
+                _ => return Err(bad()),
+            };
+            out.push(h << 4 | l);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| bad())
+}
+
+/// Save an export at a path the user picked in a Save As dialog (header `x-save-path`).
+///
+/// Stricter than a name check because the folder is not ours: the path must be a plain absolute
+/// Windows path (no `..`, device namespaces or alternate streams), its file name must already be
+/// clean (a reserved or oddly spelled name is refused, not silently renamed) and end in
+/// png/jpg/jpeg/webp matching the content, and the folder must already exist. An existing file is
+/// replaced (the dialog asked the user about that); an existing folder is never touched.
+pub fn save_export_at(path: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    if bytes.is_empty() {
+        return Err("There is nothing to save.".to_string());
+    }
+    if bytes.len() > MAX_EXPORT_BYTES {
+        return Err("That export is too large to save.".to_string());
+    }
+    if path.as_os_str().len() > 1024 || !crate::opener::is_plain_absolute(path) {
+        return Err("The save location is not valid.".to_string());
+    }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("The save location is not valid.")?;
+    let clean = sanitize_filename(name)?;
+    if clean != name {
+        return Err(
+            "That file name is not allowed. Use a plain name ending in .png, .jpg or .webp."
+                .to_string(),
+        );
+    }
+    let ext = lowercase_ext(path).unwrap_or_default();
+    if !content_matches_ext(bytes, &ext) {
+        return Err("The image data does not match the file type.".to_string());
+    }
+    let parent = path.parent().ok_or("The save location is not valid.")?;
+    if !std::fs::metadata(parent).is_ok_and(|m| m.is_dir()) {
+        return Err("That folder does not exist.".to_string());
+    }
+    if std::fs::metadata(path).is_ok_and(|m| !m.is_file()) {
+        return Err("There is already a folder with that name.".to_string());
+    }
+    let tmp = parent.join(format!(".polishot-{}.part", crate::ids::new_id()));
+    std::fs::write(&tmp, bytes).map_err(|_| "The file could not be written.".to_string())?;
+    std::fs::rename(&tmp, path).map_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+        "The file could not be saved there. Is it open in another app?".to_string()
+    })?;
+    Ok(path.to_path_buf())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +235,66 @@ mod tests {
     fn extension_helper() {
         assert_eq!(lowercase_ext(Path::new("a.PNG")).as_deref(), Some("png"));
         assert_eq!(lowercase_ext(Path::new("noext")), None);
+    }
+
+    #[test]
+    fn percent_decoding_matches_encode_uri_component() {
+        assert_eq!(percent_decode("abc").unwrap(), "abc");
+        assert_eq!(
+            percent_decode("C%3A%5CUsers%5CZo%C3%AB%5Cshot%20one.png").unwrap(),
+            "C:\\Users\\Zoë\\shot one.png"
+        );
+        assert_eq!(percent_decode("%e2%9c%93").unwrap(), "✓");
+        for bad in ["%", "%4", "%zz", "%C3", "%FF%FF", "100%"] {
+            assert!(percent_decode(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn save_as_writes_exactly_where_the_user_picked() {
+        let dir = temp();
+        let target = dir.join("My shot.png");
+        assert_eq!(save_export_at(&target, PNG).unwrap(), target);
+        assert_eq!(std::fs::read(&target).unwrap(), PNG);
+        // Replacing is allowed (the dialog asked), and leaves no temp file behind.
+        let newer = [PNG, &[9, 9]].concat();
+        save_export_at(&target, &newer).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), newer);
+        let leftovers = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+            .count();
+        assert_eq!(leftovers, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_as_refuses_unsafe_locations_and_mismatched_content() {
+        let dir = temp();
+        let at = |n: &str| dir.join(n);
+        // Content must match the extension; only image extensions.
+        assert!(save_export_at(&at("a.png"), b"not a png").is_err());
+        assert!(save_export_at(&at("a.jpg"), PNG).is_err());
+        assert!(save_export_at(&at("a.exe"), PNG).is_err());
+        assert!(save_export_at(&at("a"), PNG).is_err());
+        assert!(save_export_at(&at("a.png"), &[]).is_err());
+        // Names that would be silently altered are refused instead.
+        assert!(save_export_at(&at("con.png"), PNG).is_err());
+        assert!(save_export_at(&at("CON.backup.png"), PNG).is_err());
+        assert!(save_export_at(&at("a.png "), PNG).is_err());
+        assert!(save_export_at(&at("a?.png"), PNG).is_err());
+        // Not absolute, traversal, device namespaces, alternate streams.
+        assert!(save_export_at(Path::new("shot.png"), PNG).is_err());
+        assert!(save_export_at(Path::new(r"C:shot.png"), PNG).is_err());
+        assert!(save_export_at(&dir.join("..").join("x.png"), PNG).is_err());
+        assert!(save_export_at(Path::new(r"\\?\C:\x.png"), PNG).is_err());
+        assert!(save_export_at(Path::new(r"\\.\pipe\x.png"), PNG).is_err());
+        assert!(save_export_at(&at("a.png:stream"), PNG).is_err());
+        // The folder must exist; folders are never replaced.
+        assert!(save_export_at(&dir.join("missing").join("a.png"), PNG).is_err());
+        std::fs::create_dir_all(dir.join("taken.png")).unwrap();
+        assert!(save_export_at(&dir.join("taken.png"), PNG).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

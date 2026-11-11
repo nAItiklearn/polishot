@@ -334,9 +334,21 @@ pub fn client_rect_global(hwnd: isize) -> Option<IRect> {
     (r.w > 0 && r.h > 0).then_some(r)
 }
 
+/// A program from the Windows folder by absolute path. Looking a bare name up would search the
+/// app's own (user-writable) install folder and the current directory before System32.
+fn windows_program(relative: &str) -> std::path::PathBuf {
+    let root = std::env::var_os("SystemRoot")
+        .or_else(|| std::env::var_os("windir"))
+        .map_or_else(
+            || std::path::PathBuf::from(r"C:\Windows"),
+            std::path::PathBuf::from,
+        );
+    root.join(relative)
+}
+
 /// Open Explorer with `path` selected.
 pub fn reveal_in_explorer(path: &std::path::Path) -> Result<(), String> {
-    std::process::Command::new("explorer.exe")
+    std::process::Command::new(windows_program("explorer.exe"))
         .arg(format!("/select,{}", path.display()))
         .spawn()
         .map(|_| ())
@@ -366,7 +378,7 @@ pub fn parse_reg_dword(text: &str) -> Option<u32> {
 pub fn taskbar_is_light() -> Option<bool> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("reg")
+    let out = std::process::Command::new(windows_program(r"System32\reg.exe"))
         .args([
             "query",
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",

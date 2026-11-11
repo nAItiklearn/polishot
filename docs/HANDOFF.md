@@ -4,6 +4,17 @@ The previous lead session ended while 7 subagents were still running. Their work
 may be partially finished** — every workstream must be re-verified by running its tests before
 building on it. A git checkpoint commit was made at handoff time (`git log -1`).
 
+
+## 0. Updates 2026-11-11 (later the same day) — read first
+- **Website design is now owned by the lead, not a subagent.** Direction: warm cream paper, serif + red italic accent,
+  floating pill nav, live clickable HTML demos (components/home/*), no WebGL shaders, no theme toggle. Hero = "Polishot /
+  private by default." only. See memory `website-design-direction`.
+- **Repo is private and closed source:** https://github.com/nAItiklearn/polishot (remote `origin`). No open-source licence,
+  no GitHub links on the site. Downloads need a public host (Vercel Blob or public releases repo) — TODO.
+- **Android ML Kit sends anonymous diagnostics to Google** (no images/text, no opt-out). Site copy says "no analytics of
+  our own" and the privacy page discloses it. Owner decision pending: keep ML Kit or switch Android OCR to bundled Tesseract.
+- v0.2 roadmap approved: PLAN.md §7 (Share-safe check, guide export, social presets).
+
 ## 1. Read these first (in order)
 1. `PLAN.md` — approved architecture & milestones.
 2. `docs/CONTRACTS.md` — binding interfaces (editor API, desktop IPC, license format, Android bridge, §5b pricing).
@@ -17,7 +28,7 @@ building on it. A git checkpoint commit was made at handoff time (`git log -1`).
   as the best Mac screenshot apps (inspiration only, never copy).
 - **Use Opus for all high-level subagents** (omit `model` or set `model: "opus"`; never Sonnet/Haiku).
 - Split work into **subagents with clear, scoped briefs and exclusive folder ownership**, run in parallel.
-- **Website**: dark only (no theme toggle), live original WebGL grain-gradient/"silk" shaders in the
+- **Website** (updated 2026-11-11 by owner): LIGHT, minimal, premium, single theme (no toggle), live original WebGL BRIGHT light-gradient shader (warm ember/persimmon/gold accents allowed). Previously: dark only, grain-gradient/"silk" shaders in the
   ember/persimmon/gold palette (reference: `17c78e84-764a-4b15-88d1-0b3f8dac0b12.png` at repo root —
   style reference only), premium self-hosted fonts, small visitor counter pill in the nav
   (Upstash Redis HyperLogLog, hidden until env vars exist).

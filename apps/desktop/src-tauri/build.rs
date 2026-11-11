@@ -46,28 +46,46 @@ const COMMANDS: &[&str] = &[
     "pin_close",
 ];
 
+/// Commands of the in-app `opener` plugin (see `src/opener_plugin.rs`).
+const OPENER_COMMANDS: &[&str] = &["reveal_item_in_dir", "open_url"];
+
 /// Days since 1970-01-01 of the build, from `SOURCE_DATE_EPOCH` (reproducible builds) or now.
 /// Compared against a license key's update window (CONTRACTS section 5b).
+///
+/// Never falls back to 0: day 0 is covered by every key. A malformed `SOURCE_DATE_EPOCH` or an
+/// unreadable clock fails the build; the range check (2026..2100) happens when the value is parsed
+/// into `BUILD_DAYS` at compile time.
 fn build_days() -> u64 {
-    let secs = std::env::var("SOURCE_DATE_EPOCH")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .map(|d| d.as_secs())
-        })
-        .unwrap_or(0);
+    let secs = match std::env::var("SOURCE_DATE_EPOCH") {
+        Ok(v) if !v.trim().is_empty() => v.trim().parse::<u64>().unwrap_or_else(|_| {
+            panic!("SOURCE_DATE_EPOCH must be a Unix timestamp in seconds, got {v:?}")
+        }),
+        _ => std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| panic!("the system clock is before 1970; cannot date this build"))
+            .as_secs(),
+    };
     secs / 86_400
 }
 
 fn main() {
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
     println!("cargo:rerun-if-changed=build.rs");
+    if std::env::var_os("SOURCE_DATE_EPOCH").is_none() {
+        // Without a pinned date the embedded day must be today's, not whatever an old cached
+        // build used (an older date would be covered by more license keys). A path that does not
+        // exist makes Cargo treat the script as stale, so it re-runs on every build; the crate
+        // itself only recompiles when the resulting value changes.
+        println!("cargo:rerun-if-changed=.rebuild-for-build-date");
+    }
     println!("cargo:rustc-env=POLISHOT_BUILD_DAYS={}", build_days());
     let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
-    let attrs = tauri_build::Attributes::new().app_manifest(manifest);
+    // The preview calls `plugin:opener|reveal_item_in_dir` and `plugin:opener|open_url`; they are
+    // implemented in `src/opener_plugin.rs`, and this generates `opener:allow-*` permissions.
+    let opener = tauri_build::InlinedPlugin::new().commands(OPENER_COMMANDS);
+    let attrs = tauri_build::Attributes::new()
+        .app_manifest(manifest)
+        .plugin("opener", opener);
     if let Err(e) = tauri_build::try_build(attrs) {
         panic!("tauri-build failed: {e:#}");
     }

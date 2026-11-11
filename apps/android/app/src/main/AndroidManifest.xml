@@ -7,9 +7,11 @@
 
         INTERNET + ACCESS_LOCAL_NETWORK
             Quick send moves a screenshot between this phone and a paired PC over the local network
-            (mDNS discovery plus an encrypted TCP connection, docs/QUICKSEND.md). Polishot never contacts a
-            remote server: the editor WebView is locked to its own asset origin (every other host gets a 403)
-            and cleartext traffic is off. ACCESS_LOCAL_NETWORK is the runtime permission Android 17 requires
+            (mDNS discovery plus an encrypted TCP connection, docs/QUICKSEND.md). Polishot's own code never
+            contacts a remote server: the editor WebView is locked to its own asset origin (every other host gets
+            a 403) and cleartext traffic is off. (The one exception is the ML Kit OCR library, which reports
+            anonymous diagnostics to Google over HTTPS and never sends images or text; see README.)
+            ACCESS_LOCAL_NETWORK is the runtime permission Android 17 requires
             for apps targeting it to reach devices on the LAN; it is ignored on older releases.
         CHANGE_WIFI_MULTICAST_STATE
             A multicast lock held only while browsing for devices, which some Wi-Fi chips need to receive mDNS.

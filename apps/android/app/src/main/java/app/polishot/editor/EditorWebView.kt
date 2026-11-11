@@ -38,9 +38,10 @@ private fun secureHeaders(extra: Map<String, String> = emptyMap()): Map<String, 
     mapOf("X-Content-Type-Options" to "nosniff", "Referrer-Policy" to "no-referrer") + extra
 
 /**
- * Serves `/assets/editor/**` from the APK's assets. Unlike the stock `AssetsPathHandler` this one has an explicit
- * extension to MIME table, because `<script type="module">` is only executed with a JavaScript MIME type, and
- * it refuses anything outside `editor/` or containing traversal sequences.
+ * Serves the `editor` folder of the APK's assets (URL prefix `/assets/editor/`). Unlike the stock
+ * `AssetsPathHandler` this one has an explicit extension to MIME table, because `<script type="module">` is only
+ * executed with a JavaScript MIME type, and it refuses anything outside `editor/` or containing traversal
+ * sequences. (Kotlin block comments nest, so never write a slash followed by a star inside a comment.)
  */
 class EditorAssetsHandler(private val context: Context) : WebViewAssetLoader.PathHandler {
     override fun handle(path: String): WebResourceResponse? {

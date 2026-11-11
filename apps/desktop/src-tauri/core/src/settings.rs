@@ -212,6 +212,11 @@ pub fn validate_save_folder(folder: &str) -> Result<(), String> {
     if p.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err("The save folder cannot contain \"..\".".to_string());
     }
+    // Device namespaces (`\\?\`, `\\.\`), alternate streams and wildcard characters are never a
+    // folder the user meant.
+    if !crate::opener::is_plain_absolute(p) {
+        return Err("The save folder path is not valid.".to_string());
+    }
     Ok(())
 }
 
@@ -420,6 +425,12 @@ mod tests {
         assert!(validate_save_folder("C:\\a\\..\\b").is_err());
         assert!(validate_save_folder(&format!("C:\\{}", "x".repeat(300))).is_err());
         assert!(validate_save_folder("C:\\a\0b").is_err());
+        assert!(validate_save_folder(r"\\?\C:\Pictures").is_err());
+        assert!(validate_save_folder(r"\\.\pipe\x").is_err());
+        assert!(validate_save_folder(r"C:\Pictures\a:b").is_err());
+        assert!(validate_save_folder(r"C:\Pictures\*").is_err());
+        assert!(validate_save_folder(r"C:\Users\Zoë\Bilder\Polishot").is_ok());
+        assert!(validate_save_folder(r"\\nas\share\Shots").is_ok());
     }
 
     #[test]

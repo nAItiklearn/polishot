@@ -3,8 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <!--
-      Strict CSP: nothing is ever loaded from a remote origin. Keep this string identical to EditorUrls.CSP in
-      apps/android/app/src/main/java/app/polishot/editor/EditorWebView.kt (a unit test compares the two).
+      Strict CSP: nothing is ever loaded from a remote origin. Keep this string identical to EditorCsp.POLICY in
+      apps/android/app/src/main/java/app/polishot/editor/EditorCsp.kt (a unit test compares the two). The app also
+      sends the same policy as an HTTP header; frame-ancestors only takes effect from the header, which is why both
+      carry it.
     -->
     <meta
       http-equiv="Content-Security-Policy"

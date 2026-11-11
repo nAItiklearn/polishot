@@ -21,8 +21,11 @@ import kotlin.math.min
  * The floating capture button: a draggable overlay window (TYPE_APPLICATION_OVERLAY, needs the "display over other
  * apps" permission) that snaps to the nearest screen edge when released. A tap calls [onTap].
  *
- * The window is kept attached but made INVISIBLE while a frame is grabbed, so it is not in the screenshot yet the
- * app still owns a visible overlay window when it starts the editor from the background.
+ * While a frame is grabbed the window stays attached and visible to the window manager but is fully transparent
+ * (alpha 0), so it is not in the screenshot yet the app still owns a visible overlay window when it starts the editor
+ * from the background. A view set to INVISIBLE would not do: the system then drops the window's surface, and
+ * Android 15 and later only let an app with the overlay permission start an activity from the background while
+ * that overlay window is visible.
  */
 class CaptureBubble(
     private val context: Context,
@@ -57,6 +60,7 @@ class CaptureBubble(
     fun attach(): Boolean {
         if (attached) {
             view.visibility = View.VISIBLE
+            view.alpha = REST_ALPHA
             return true
         }
         val screen = ScreenMetrics.real(context)
@@ -64,6 +68,7 @@ class CaptureBubble(
         params.x = x
         params.y = y
         view.visibility = View.VISIBLE
+        view.alpha = REST_ALPHA
         return try {
             windowManager.addView(view, params)
             attached = true
@@ -74,13 +79,16 @@ class CaptureBubble(
         }
     }
 
-    /** Hides the pixels but keeps the window attached (see class comment). */
+    /** Hides the pixels but keeps the window attached and visible to the system (see class comment). */
     fun hideForCapture() {
-        view.visibility = View.INVISIBLE
+        view.alpha = 0f
     }
 
     fun showAgain() {
-        if (attached) view.visibility = View.VISIBLE
+        if (attached) {
+            view.visibility = View.VISIBLE
+            view.alpha = REST_ALPHA
+        }
     }
 
     fun detach() {
@@ -147,6 +155,7 @@ class CaptureBubble(
         const val MARGIN_DP = 6
         const val SNAP_MILLIS = 180L
         const val DEFAULT_Y_FRACTION = 0.4f
+        const val REST_ALPHA = 0.94f
         const val KEY_RIGHT = "bubble_right"
         const val KEY_Y = "bubble_y_fraction"
     }
@@ -194,7 +203,7 @@ internal class BubbleView(
         setLayerType(LAYER_TYPE_SOFTWARE, null) // shadow layers on shapes need a software layer
         isClickable = true
         contentDescription = context.getString(app.polishot.R.string.bubble_description)
-        alpha = 0.94f
+        alpha = REST_ALPHA
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -267,6 +276,8 @@ internal class BubbleView(
     }
 
     private companion object {
+        const val REST_ALPHA = 0.94f
+
         /** Persimmon, the brand accent (packages/brand palette.light.accent). */
         const val ACCENT = 0xFFC8471D.toInt()
         const val ON_ACCENT = 0xFFFFFFFF.toInt()

@@ -1,7 +1,8 @@
 # Polishot for Android
 
 Capture the screen, beautify it, redact what should not be shared, and send it to a PC on the same Wi-Fi.
-Everything runs on the device: there is no account and no upload.
+Everything runs on the device: there is no account, and screenshots, recognised text and licence keys are never uploaded
+(one caveat about anonymous OCR diagnostics is under "Things to know").
 
 This folder is a Gradle build (`apps/android/`) with two modules and a small web app:
 
@@ -13,9 +14,13 @@ This folder is a Gradle build (`apps/android/`) with two modules and a small web
 
 ## Requirements
 
-- JDK 17 (Gradle uses a JDK 17 toolchain for the build and for the compiler target).
-- Android SDK with platform 37 and build-tools. Easiest: install Android Studio and open this folder. Or install the
-  command-line tools and point `ANDROID_HOME` at the SDK.
+- JDK 17 or newer to run Gradle (Android Studio's bundled JDK 21 is fine; Gradle 9.6 runs on JDK 17 to 26). The
+  code is compiled for Java 17 whatever JDK runs the build; there is deliberately no Gradle JDK toolchain, so no
+  separate JDK 17 install is needed.
+- Android SDK packages `platforms;android-37.0` (Android SDK Platform 37.0) and `build-tools;36.0.0`. Easiest:
+  install Android Studio, open this folder and accept the SDK licences when it offers to install them. Or install the
+  command-line tools, run `sdkmanager --licenses` and point `ANDROID_HOME` at the SDK (Gradle then downloads the two
+  packages itself).
 - Node 24 and pnpm 12.16.1 (the repo pins it in `packageManager`; `corepack enable` provides it).
 - A device or emulator with Android 10 (API 29) or newer.
 
@@ -136,6 +141,11 @@ API 34 emulator. It signs with the repository secrets `POLISHOT_KEYSTORE_BASE64`
   bubble, optional), `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MEDIA_PROJECTION`, and on
   Android 17 and later the runtime permission `ACCESS_LOCAL_NETWORK` for reaching a PC on the local network.
   `NEARBY_WIFI_DEVICES` is not needed for `NsdManager` and is not requested.
+- **ML Kit diagnostics (needs an owner decision).** The OCR library reports anonymous diagnostics to Google over HTTPS: device
+  model, OS version, app package and version, latency and event counts. It never sends images or recognised text, but
+  Google documents no way to switch the reporting off (<https://developers.google.com/ml-kit/android-data-disclosure>).
+  So "no network traffic" is true of Polishot's own code and of the editor WebView, not of the whole process. Disclose it
+  in the Play data-safety form and the privacy page, or replace ML Kit with an OCR engine that has no telemetry.
 - **No logging of content.** OCR text, images and licence keys are never written to the log.
 - **`quicksend` stays free of newer Java APIs.** It compiles on a plain JDK 17, but the app runs it on Android 10 and
   newer (minSdk 29). Avoid library calls added after Java 8 in `quicksend/` (for example `HexFormat`,

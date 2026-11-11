@@ -3,20 +3,47 @@
 //! The key is verified offline (Ed25519) and stored in Windows Credential Manager under the
 //! target `<product>/license`. Verification is injected so tests can use the shared vectors'
 //! test-only public key while production uses `verify_prod`.
+//!
+//! The update-window maths (`issued + 365 days`, inclusive) lives in `polishot-license`
+//! (`LicenseInfo::updates_until_days`, `covers_build`, `Entitlement`); this module only maps the
+//! result onto the IPC `LicenseStatus` and embeds the build date check.
 
-use polishot_license::{LicenseError, LicenseInfo};
+use polishot_license::{Entitlement, LicenseError, LicenseInfo};
 use serde::Serialize;
 
 /// Updates included with a key: it covers every build dated up to `issued + 365` days
 /// (CONTRACTS section 5b).
-pub const UPDATE_WINDOW_DAYS: u32 = 365;
+pub use polishot_license::UPDATE_WINDOW_DAYS;
 
-pub fn updates_until_days(info: &LicenseInfo) -> u32 {
-    info.issued_days.saturating_add(UPDATE_WINDOW_DAYS)
-}
+/// 2026-01-01 as days since the Unix epoch. No genuine build is older than this, so an older
+/// value means the build machine's clock was wrong.
+pub const MIN_BUILD_DAYS: u32 = 20_454;
+/// 2100-01-01. A build dated beyond this is a clock error too.
+pub const MAX_BUILD_DAYS: u32 = 47_482;
 
-pub fn covers_build(info: &LicenseInfo, build_days: u32) -> bool {
-    build_days <= updates_until_days(info)
+/// Parse the build date embedded by `build.rs` (`POLISHOT_BUILD_DAYS`, days since the Unix epoch).
+///
+/// Evaluated at compile time. It deliberately **panics** (a compile error) instead of falling back
+/// to a default: day 0 is covered by every license key, so a silent `0` would hand out Pro
+/// forever (CONTRACTS section 5b).
+pub const fn parse_build_days(s: &str) -> u32 {
+    let b = s.as_bytes();
+    if b.is_empty() || b.len() > 9 {
+        panic!("POLISHOT_BUILD_DAYS is empty or has too many digits");
+    }
+    let mut i = 0;
+    let mut n: u64 = 0;
+    while i < b.len() {
+        if !b[i].is_ascii_digit() {
+            panic!("POLISHOT_BUILD_DAYS must be a plain number of days since 1970-01-01");
+        }
+        n = n * 10 + (b[i] - b'0') as u64;
+        i += 1;
+    }
+    if n < MIN_BUILD_DAYS as u64 || n > MAX_BUILD_DAYS as u64 {
+        panic!("POLISHOT_BUILD_DAYS is outside 2026-01-01..2100-01-01: check the build machine clock or SOURCE_DATE_EPOCH");
+    }
+    n as u32
 }
 
 /// `YYYY-MM-DD` for a count of days since 1970-01-01 (proleptic Gregorian, UTC).
@@ -55,30 +82,35 @@ pub struct LicenseStatus {
 
 impl LicenseStatus {
     pub fn unlicensed() -> Self {
-        Self::without_pro("no-key")
+        Self::without_key(Entitlement::NO_KEY)
     }
 
-    fn without_pro(reason: &'static str) -> Self {
+    /// A stored key that no longer verifies.
+    fn invalid() -> Self {
+        Self::without_key(Entitlement::INVALID)
+    }
+
+    fn without_key(e: Entitlement) -> Self {
         Self {
-            licensed: false,
+            licensed: e.pro,
             edition: None,
             key_id: None,
             issued_at: None,
-            reason: Some(reason),
-            updates_until: None,
+            reason: e.reason,
+            updates_until: e.updates_until_days.map(iso_date),
         }
     }
 
     /// Status for a verified key and the build date of this app.
     pub fn from_info(info: &LicenseInfo, build_days: u32) -> Self {
-        let covered = covers_build(info, build_days);
+        let e = Entitlement::for_info(info, build_days);
         Self {
-            licensed: covered,
+            licensed: e.pro,
             edition: Some(info.edition.as_str().to_string()),
             key_id: Some(info.key_id_hex()),
-            issued_at: Some(info.issued_at_unix_secs() * 1000),
-            reason: (!covered).then_some("updates-expired"),
-            updates_until: Some(iso_date(updates_until_days(info))),
+            issued_at: Some(info.issued_at_unix_secs().saturating_mul(1000)),
+            reason: e.reason,
+            updates_until: e.updates_until_days.map(iso_date),
         }
     }
 }
@@ -127,12 +159,13 @@ pub fn activate(
     Ok(LicenseStatus::from_info(&info, build_days))
 }
 
-/// Re-verify whatever is stored. A stored key that no longer verifies counts as unlicensed.
+/// Re-verify whatever is stored. Nothing stored (or only blanks) is `no-key`; a stored key that
+/// no longer verifies is `invalid` and never grants Pro (fails closed).
 pub fn current(store: &dyn SecretStore, verify: &Verifier<'_>, build_days: u32) -> LicenseStatus {
     match store.read() {
-        Ok(Some(key)) => verify(&key)
+        Ok(Some(key)) if !key.trim().is_empty() => verify(key.trim())
             .map(|info| LicenseStatus::from_info(&info, build_days))
-            .unwrap_or_else(|_| LicenseStatus::without_pro("invalid")),
+            .unwrap_or_else(|_| LicenseStatus::invalid()),
         _ => LicenseStatus::unlicensed(),
     }
 }
@@ -271,6 +304,18 @@ mod tests {
     struct Vectors {
         public_key_hex: String,
         cases: Vec<Case>,
+        entitlement_cases: Vec<EntitlementCase>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct EntitlementCase {
+        name: String,
+        key: String,
+        build_days: u32,
+        pro: bool,
+        reason: Option<String>,
+        updates_until_days: Option<u32>,
     }
 
     #[derive(Deserialize)]
@@ -452,6 +497,109 @@ mod tests {
             serde_json::to_string(&s).unwrap(),
             r#"{"licensed":true,"edition":"team","keyId":"00ff","issuedAt":5,"updatesUntil":"2027-01-01"}"#
         );
+    }
+
+    /// The shared `entitlementCases` (the same file the TypeScript and Rust crates assert) must give
+    /// the same answer through the desktop status the UI reads.
+    #[test]
+    fn entitlement_cases_match_the_shared_vectors() {
+        let v = vectors();
+        let pk = polishot_license::public_key_from_hex(&v.public_key_hex).unwrap();
+        let verify = |k: &str| polishot_license::verify(k, &pk);
+        assert!(v.entitlement_cases.len() >= 15);
+        for c in &v.entitlement_cases {
+            // The key goes straight into the store: this is what startup re-verification reads.
+            let store = MemStore::default();
+            store.write(&c.key).unwrap();
+            let st = current(&store, &verify, c.build_days);
+            assert_eq!(st.licensed, c.pro, "{}", c.name);
+            assert_eq!(
+                st.reason,
+                c.reason.as_deref().map(static_reason),
+                "{}",
+                c.name
+            );
+            assert_eq!(
+                st.updates_until,
+                c.updates_until_days.map(iso_date),
+                "{}",
+                c.name
+            );
+            // Activating the same key agrees whenever the key is genuine.
+            if c.updates_until_days.is_some() {
+                let fresh = MemStore::default();
+                let activated = activate(&fresh, &verify, &c.key, c.build_days).unwrap();
+                assert_eq!(activated, st, "{}", c.name);
+            }
+        }
+    }
+
+    fn static_reason(s: &str) -> &'static str {
+        match s {
+            "no-key" => "no-key",
+            "invalid" => "invalid",
+            "updates-expired" => "updates-expired",
+            other => panic!("unknown reason {other}"),
+        }
+    }
+
+    #[test]
+    fn the_production_verifier_never_grants_pro_to_garbage() {
+        let store = MemStore::default();
+        for junk in ["", "   ", "PSHOT-", "not a key", "PSHOT-0000-0000"] {
+            store.write(junk).unwrap();
+            let st = current(&store, &prod_verifier, 20_600);
+            assert!(!st.licensed, "{junk:?}");
+            assert!(st.reason.is_some(), "{junk:?}");
+        }
+    }
+
+    #[test]
+    fn build_days_parse_to_the_exact_day() {
+        assert_eq!(parse_build_days("20454"), 20_454);
+        assert_eq!(parse_build_days("20765"), 20_765);
+        assert_eq!(parse_build_days("47482"), 47_482);
+        // The constant is usable in const context, exactly like `BUILD_DAYS`.
+        const D: u32 = parse_build_days("20800");
+        assert_eq!(D, 20_800);
+        assert_eq!(iso_date(MIN_BUILD_DAYS), "2026-01-01");
+        assert_eq!(iso_date(MAX_BUILD_DAYS), "2100-01-01");
+    }
+
+    #[test]
+    #[should_panic(expected = "empty")]
+    fn an_empty_build_date_is_a_compile_error_not_day_zero() {
+        parse_build_days("");
+    }
+
+    #[test]
+    #[should_panic(expected = "plain number")]
+    fn a_garbled_build_date_is_rejected() {
+        parse_build_days("2026-11");
+    }
+
+    #[test]
+    #[should_panic(expected = "outside")]
+    fn day_zero_is_rejected() {
+        parse_build_days("0");
+    }
+
+    #[test]
+    #[should_panic(expected = "outside")]
+    fn a_clock_stuck_before_2026_is_rejected() {
+        parse_build_days("20453");
+    }
+
+    #[test]
+    #[should_panic(expected = "outside")]
+    fn a_clock_far_in_the_future_is_rejected() {
+        parse_build_days("47483");
+    }
+
+    #[test]
+    #[should_panic(expected = "too many digits")]
+    fn an_overlong_build_date_is_rejected() {
+        parse_build_days("1234567890");
     }
 
     /// Real Windows Credential Manager round trip under a throwaway target.

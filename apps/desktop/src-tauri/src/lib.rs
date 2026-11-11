@@ -4,6 +4,7 @@
 mod capture;
 mod commands;
 mod files;
+mod opener_plugin;
 mod pin;
 mod protocol;
 mod quicksend;
@@ -20,8 +21,8 @@ mod winmgr;
 // `crate::geometry`, `crate::ids`, ... paths.
 pub(crate) use polishot_core::{
     bmp, clipboard, cropping, export, geometry, gifrec, grab, history, ids, imgio, jobs, layout,
-    license, ocr, paths, pinmath, qspeers, qsstore, routes, scroll, settings, store, timing, tlog,
-    winsrc, winutil,
+    license, ocr, paths, pinmath, qsengine, qspeers, qsstore, routes, scroll, settings, store,
+    timing, tlog, winsrc, winutil,
 };
 
 use std::sync::atomic::AtomicU64;
@@ -38,22 +39,9 @@ use crate::state::{AppState, FrameFormat};
 use crate::store::CaptureStore;
 
 /// Days since the Unix epoch when this build was made (set by `build.rs`). A license key covers
-/// the build when `BUILD_DAYS <= issuedDays + 365`.
-pub const BUILD_DAYS: u32 = parse_days(env!("POLISHOT_BUILD_DAYS"));
-
-const fn parse_days(s: &str) -> u32 {
-    let b = s.as_bytes();
-    let mut i = 0;
-    let mut n: u32 = 0;
-    while i < b.len() {
-        if b[i] < b'0' || b[i] > b'9' {
-            return 0;
-        }
-        n = n.saturating_mul(10).saturating_add((b[i] - b'0') as u32);
-        i += 1;
-    }
-    n
-}
+/// the build when `BUILD_DAYS <= issuedDays + 365`. A missing or implausible value is a compile
+/// error, never day 0 (which every key would cover).
+pub const BUILD_DAYS: u32 = license::parse_build_days(env!("POLISHOT_BUILD_DAYS"));
 
 /// At most this many decoded captures stay in memory (older ones reload from disk).
 const MAX_CACHED_CAPTURES: usize = 8;
@@ -161,6 +149,8 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
+        // `plugin:opener|...` commands for the preview window (https links, reveal in Explorer).
+        .plugin(opener_plugin::plugin())
         .register_asynchronous_uri_scheme_protocol("polishot", protocol::handle)
         .setup(setup)
         .invoke_handler(tauri::generate_handler![

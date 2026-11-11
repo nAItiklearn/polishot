@@ -1,40 +1,79 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { PAGES } from './pages';
 
 const changelog = readFileSync(path.join(__dirname, '..', '..', '..', 'CHANGELOG.md'), 'utf8');
 
 test.describe('home', () => {
-  test('leads with a before and after, then one section per feature', async ({ page }) => {
+  test('leads with the name and the promise, then a live demo and one section per idea', async ({
+    page,
+  }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('Screenshots, finished in about two seconds.');
-    await expect(page.getByText('After, about two seconds later')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Polishot private by default.',
+    );
+    // The hero demo is built in HTML and every step can be chosen.
+    const steps = page.getByRole('list', { name: 'Demo steps' }).getByRole('button');
+    await expect(steps).toHaveCount(5);
+    await steps.nth(2).click();
+    await expect(steps.nth(2)).toHaveAttribute('aria-current', 'step');
 
     for (const heading of [
-      'Framed evenly, without a crop tool.',
+      'Everything a screenshot should do.',
       'Sensitive details, covered before you share.',
-      'Nothing leaves your machine.',
+      'Your screenshots stay yours.',
+      'From your phone to your PC, over your own Wi-Fi.',
       'The words in your screenshot, ready to paste.',
-      'Sized for where it is going.',
-      'Between your phone and PC, over your own Wi-Fi.',
+      'Framed evenly, sized for where it is going.',
       'Free, with every feature. Pro is $11, once.',
     ]) {
       await expect(page.getByRole('heading', { level: 2, name: heading })).toBeAttached();
     }
-    await expect(page.getByText('Redaction runs on your machine. Nothing is uploaded.')).toBeAttached();
+    await expect(
+      page.getByText('Redaction runs on your machine. Nothing is uploaded.'),
+    ).toBeAttached();
   });
 
-  test('shows a neutral placeholder for every shot that has no file yet, never a broken image', async ({
+  test('leads with privacy, in this order: redact, privacy, phone to PC', async ({ page }) => {
+    await page.goto('/');
+    const headings = await page.getByRole('heading', { level: 2 }).allInnerTexts();
+    const at = (text: string) => headings.findIndex((h) => h.includes(text));
+    expect(at('Sensitive details')).toBeGreaterThanOrEqual(0);
+    expect(at('Sensitive details')).toBeLessThan(at('Your screenshots stay yours.'));
+    expect(at('Your screenshots stay yours.')).toBeLessThan(at('From your phone to your PC'));
+    expect(at('From your phone to your PC')).toBeLessThan(at('Framed evenly'));
+  });
+
+  test('the Share-safe check is labelled as coming in v0.2, never as shipping', async ({
     page,
   }) => {
     await page.goto('/');
-    const names = await page.locator('[data-shot-placeholder]').evaluateAll((els) =>
-      els.map((el) => el.getAttribute('data-shot-placeholder')),
+    const note = page.getByTestId('soon-note');
+    await expect(note).toHaveCount(1);
+    await expect(note).toContainText('Coming in v0.2');
+    await expect(note).toContainText('Share-safe check');
+    // The note is the only place the home page mentions it.
+    const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+    expect(text.match(/Share-safe/g)).toHaveLength(1);
+  });
+
+  test('the redaction demo can show and cover each finding', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    const toggle = page.getByRole('button', { name: /^Email address: covered/ });
+    await toggle.scrollIntoViewIfNeeded();
+    await toggle.click();
+    await expect(page.getByRole('button', { name: /^Email address: shown/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
     );
-    const images = await page.locator('main img').count();
-    // Seven shots in total across the page, each either a placeholder or a real image.
-    expect(names.length + images).toBe(7);
-    await expect(page.locator('main img[src*="/shots/"]')).toHaveCount(images);
+  });
+
+  test('uses no screenshots as images: the demos are live HTML', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('main img[src*="/shots/"]')).toHaveCount(0);
+    await expect(page.locator('main [data-demo]').first()).toBeAttached();
   });
 });
 
@@ -71,9 +110,22 @@ test.describe('features', () => {
     await expect(page.locator('main svg')).toHaveCount(0); // no icon grid
   });
 
+  test('the Share-safe check is listed, labelled as coming in v0.2', async ({ page }) => {
+    await page.goto('/features');
+    const item = page.locator('#share-safe');
+    await expect(item.locator('dt')).toContainText('Share-safe check');
+    await expect(item.getByTestId('soon-label')).toHaveText('Coming in v0.2');
+    await expect(item.locator('dd')).toContainText('not in the current version');
+    // Nothing else on the page is marked as unreleased.
+    await expect(page.getByTestId('soon-label')).toHaveCount(1);
+  });
+
   test('the group links jump to their sections', async ({ page }) => {
     await page.goto('/features');
-    await page.getByRole('navigation', { name: 'Feature groups' }).getByRole('link', { name: 'Protect' }).click();
+    await page
+      .getByRole('navigation', { name: 'Feature groups' })
+      .getByRole('link', { name: 'Protect' })
+      .click();
     await expect(page).toHaveURL('/features#protect');
     await expect(page.getByRole('heading', { level: 2, name: 'Protect' })).toBeInViewport();
   });
@@ -111,11 +163,51 @@ test.describe('legal pages', () => {
     for (const phrase of [
       'not uploaded to us or to anyone else',
       'There is no account',
-      'send no telemetry by default',
+      'collect no analytics of their own',
+      'never sends your images or the text in them',
       'No tracking cookies',
       'local network',
     ]) {
       expect(text, phrase).toContain(phrase);
     }
+  });
+});
+
+test.describe('positioning', () => {
+  // Owner rule: competitors are never named on the site.
+  const COMPETITORS = [
+    'cleanshot',
+    'snagit',
+    'sharex',
+    'lightshot',
+    'greenshot',
+    'shottr',
+    'monosnap',
+    'skitch',
+    'flameshot',
+    'snipping tool',
+    'snip & sketch',
+    'screenpresso',
+  ];
+
+  test('no page names a competitor, in its text or its metadata', async ({ page }) => {
+    for (const { path } of PAGES) {
+      await page.goto(path);
+      const html = (await page.content()).toLowerCase();
+      for (const name of COMPETITORS) {
+        expect(html, `${path} mentions "${name}"`).not.toContain(name);
+      }
+    }
+  });
+
+  test('says what it is on every page: Windows and Android, and the price once', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const description = await page.locator('meta[name="description"]').getAttribute('content');
+    expect(description).toContain('Windows and Android');
+    expect(description).toContain('on your own device');
+    expect(description).toContain('Pro is $11, once');
+    await expect(page).toHaveTitle('Polishot | Polished screenshots, private by default.');
   });
 });

@@ -87,11 +87,8 @@ export default function PricingPage() {
           </div>
 
           <ShaderBand
-            variant="gold"
-            intensity={0.55}
-            offset={[0, 0.2]}
-            scrim="bottom"
-            className="flex flex-col rounded-lg border border-line shadow-high"
+            scrim="none"
+            className="flex flex-col rounded-2xl border border-line bg-surface shadow-high"
           >
             <div className="flex flex-1 flex-col p-8 md:p-12">
               <h2 className="eyebrow">Pro</h2>

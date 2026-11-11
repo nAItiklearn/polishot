@@ -456,13 +456,15 @@ fn commit_capture(
     let meta = register_capture(app, w, h, rgba, source);
     tlog!("commit registered capture {:.1} ms", timing::ms(t_commit));
 
-    // Preview first, then drop the overlays, so the desktop never flashes between them.
+    // Tell the preview about the new capture *before* the window appears, so it never shows the
+    // previous capture for a frame. Then the preview goes up and the overlays drop, in that order,
+    // so the desktop never flashes between them.
+    let _ = app.emit_to("preview", "capture:ready", &meta);
     if after == AfterCapture::Preview {
         winmgr::show_preview(app);
     }
     tlog!("commit preview shown {:.1} ms", timing::ms(t_commit));
     winmgr::hide_overlays(app);
-    let _ = app.emit_to("preview", "capture:ready", &meta);
     tlog!(
         "commit->preview shown {:.1} ms (crop {t_crop:.1} ms); hotkey->preview {:.1} ms",
         timing::ms(t_commit),

@@ -124,9 +124,9 @@ android {
     }
 }
 
-kotlin {
-    jvmToolchain(17)
-}
+// No `kotlin { jvmToolchain(17) }` on purpose: a toolchain forces Gradle to find a JDK 17 install and fails with
+// "Cannot find a Java installation matching languageVersion=17" when Gradle runs on another JDK (Android Studio's
+// bundled JDK is 21). Built-in Kotlin takes its jvmTarget from compileOptions above, so any JDK 17 or newer builds this.
 
 ksp {
     // Room exports its schema JSON here; commit the files so migrations can be reviewed.
@@ -260,11 +260,14 @@ val buildEditorHost = tasks.register<Exec>("buildEditorHost") {
     onlyIf { !skipEditorBuild }
 }
 
-// Everything that reads src/main/assets (asset merging, lint) must run after the editor build, otherwise
-// Gradle reports an undeclared dependency on the task's output directory.
+// Everything that reads src/main/assets (asset merging and compression for every variant and test type, lint and
+// the lint model writers) must run after the editor build, otherwise Gradle fails with "uses this output of task
+// ':app:buildEditorHost' without declaring an explicit or implicit dependency". Matching on the words "assets" and
+// "lint" in the task name (instead of one exact pattern) also covers tasks such as generateDebugLintModel,
+// lintVitalAnalyzeRelease and compressReleaseAssets. Being scheduled a little late is harmless.
 tasks.configureEach {
     val consumesAssets = name != "buildEditorHost" &&
-        (name.startsWith("lint") || (name.startsWith("merge") && name.endsWith("Assets")))
+        (name.contains("assets", ignoreCase = true) || name.contains("lint", ignoreCase = true))
     if (consumesAssets) {
         dependsOn(buildEditorHost)
     }

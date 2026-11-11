@@ -160,8 +160,20 @@ pub async fn export_save(app: AppHandle, request: Request<'_>) -> CmdResult<Stri
         .and_then(|v| v.to_str().ok())
         .ok_or("Missing file name.")?
         .to_string();
+    // Optional Save As destination, percent-encoded UTF-8. Present but unusable is an error: the
+    // file must never land somewhere other than where the user pointed.
+    let save_path = match request.headers().get("x-save-path") {
+        None => None,
+        Some(v) => Some(
+            v.to_str()
+                .ok()
+                .filter(|s| !s.is_empty() && s.len() <= 3072)
+                .ok_or("The save location is not valid.")?
+                .to_string(),
+        ),
+    };
     let bytes = raw_body(&request)?;
-    blocking(move || files::export_save(&app, &bytes, &name)).await
+    blocking(move || files::export_save(&app, &bytes, &name, save_path.as_deref())).await
 }
 
 #[tauri::command]
@@ -454,7 +466,7 @@ pub async fn qs_pairing_mode(app: AppHandle, open: bool) -> CmdResult<()> {
 #[tauri::command]
 pub async fn qs_pair_start(app: AppHandle, device_id: String) -> CmdResult<quicksend::PairCode> {
     blocking(move || {
-        quicksend::parse_device_text(&device_id)?;
+        let device_id = quicksend::parse_device_text(&device_id)?;
         quicksend::ensure(&app)?.pair_start(&device_id)
     })
     .await
@@ -479,19 +491,24 @@ pub async fn qs_send(app: AppHandle, request: Request<'_>) -> CmdResult<()> {
             .map(str::to_string)
     };
     let device = header("x-device-id").ok_or("Missing device.")?;
-    let file_name = header("x-filename").unwrap_or_else(|| "screenshot.png".to_string());
+    // The file name is sanitised by the protocol layer; cap it here so a huge header never gets there.
+    let file_name = header("x-filename")
+        .filter(|n| n.len() <= 512)
+        .unwrap_or_else(|| "screenshot.png".to_string());
+    let device = quicksend::parse_device_text(&device)?;
+    if let InvokeBody::Raw(raw) = request.body() {
+        if raw.len() as u64 > polishot_quicksend::MAX_FILE_SIZE {
+            return Err("That image is too large to send (limit 50 MB).".to_string());
+        }
+    }
     let bytes = raw_body(&request)?;
-    blocking(move || {
-        quicksend::parse_device_text(&device)?;
-        quicksend::ensure(&app)?.send_png(&device, &file_name, &bytes)
-    })
-    .await
+    blocking(move || quicksend::ensure(&app)?.send_png(&device, &file_name, &bytes)).await
 }
 
 #[tauri::command]
 pub async fn qs_forget(app: AppHandle, device_id: String) -> CmdResult<()> {
     blocking(move || {
-        quicksend::parse_device_text(&device_id)?;
+        let device_id = quicksend::parse_device_text(&device_id)?;
         quicksend::ensure(&app)?.forget(&device_id)
     })
     .await

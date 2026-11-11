@@ -32,14 +32,19 @@ export function ShaderBand({
   children,
 }: ShaderBandProps) {
   return (
-    <Tag data-theme="dark" aria-labelledby={labelledBy} className={cn('relative isolate overflow-hidden bg-bg text-ink', className)}>
+    <Tag
+      aria-labelledby={labelledBy}
+      className={cn('shader-band relative isolate overflow-hidden bg-bg text-ink', className)}
+    >
       {variant ? (
         <ShaderCanvas variant={variant} intensity={intensity} offset={offset} />
       ) : (
         <div aria-hidden="true" className="shader-surface" data-variant="still" />
       )}
       <div aria-hidden="true" className="shader-grain" />
-      {scrim !== 'none' ? <div aria-hidden="true" className="shader-scrim" data-scrim={scrim} /> : null}
+      {scrim !== 'none' ? (
+        <div aria-hidden="true" className="shader-scrim" data-scrim={scrim} />
+      ) : null}
       {children}
     </Tag>
   );

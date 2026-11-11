@@ -53,9 +53,15 @@ export default function PrivacyPage() {
 
       <h2>Accounts and telemetry</h2>
       <p>
-        There is no account. The apps send no telemetry by default, and they do not need an internet
+        There is no account, and the apps collect no analytics of their own. They do not need an internet
         connection to work. If crash reports or usage statistics are ever added, they will be opt-in and
         listed here first.
+      </p>
+      <p>
+        One exception on Android: text recognition uses Google&apos;s on-device ML Kit model. Google&apos;s
+        library sends anonymous diagnostics to Google, such as the device model, Android version, app
+        version and how long recognition took. It never sends your images or the text in them, and Google
+        does not offer a way to switch this off. Windows does not use it.
       </p>
 
       <h2>Quick send</h2>

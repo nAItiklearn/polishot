@@ -1,67 +1,71 @@
 import Link from 'next/link';
-import { ArrowUpRight } from 'lucide-react';
 import { APP_NAME } from '@polishot/brand';
-import { Wordmark } from '@/components/logo';
-import { FOOTER_LINKS, GITHUB_URL } from '@/lib/site';
+import { LogoMark } from '@/components/logo';
+import { FOOTER_LINKS, LICENSE_PRICE } from '@/lib/site';
 import { latestRelease } from '@/lib/changelog';
 
-const linkClass = 'inline-flex h-9 items-center text-[15px] text-ink-2 transition-colors hover:text-ink';
+const linkClass =
+  'inline-flex h-9 items-center text-[15.5px] text-ink-2 transition-colors hover:text-ink';
 
-/** The page ends the way it begins: dark, with the brand lockup. */
+const RESOURCES = new Set<string>(['/changelog', '/editor']);
+
+const COLUMNS = [
+  { title: 'Product', links: FOOTER_LINKS.product.filter((l) => !RESOURCES.has(l.href)) },
+  { title: 'Resources', links: FOOTER_LINKS.product.filter((l) => RESOURCES.has(l.href)) },
+  { title: 'Legal', links: FOOTER_LINKS.legal },
+];
+
+/** The page ends on one last line and the way to get it, with the mark watermarked behind. */
 export function SiteFooter() {
   const release = latestRelease();
   const year = new Date().getFullYear();
   return (
-    <footer
-      data-theme="dark"
-      className="offscreen-auto border-t border-line bg-bg text-ink [contain-intrinsic-size:auto_480px]"
-    >
-      <div className="container-page grid gap-12 py-16 md:grid-cols-12">
-        <div className="md:col-span-5">
-          <Wordmark height={48} className="-ml-3" />
-          <p className="mt-5 max-w-[34ch] text-ink-2">
-            Screenshots, finished in about two seconds. Free on Windows and Android.
+    <footer className="offscreen-auto relative isolate overflow-hidden text-ink [contain-intrinsic-size:auto_720px]">
+      <LogoMark mono className="footer-mark text-ink" />
+      <div className="container-page pb-10 pt-24 md:pt-32">
+        <div className="flex flex-col gap-10 md:flex-row md:items-end md:justify-between">
+          <p className="display-1 text-[clamp(3rem,1.6rem+4.6vw,5.75rem)]">
+            Screenshots,
+            <em className="block text-accent-ink">made beautiful.</em>
           </p>
+          <div className="flex flex-col items-start gap-3 md:items-end">
+            <Link
+              href="/download"
+              className="btn-ember inline-flex h-14 items-center rounded-xl px-7 text-[17px] font-semibold transition-[background-color,box-shadow]"
+            >
+              Download {APP_NAME}, free
+            </Link>
+            <p className="text-[14px] text-ink-3">Pro is {LICENSE_PRICE}, once.</p>
+          </div>
         </div>
 
-        <nav aria-label="Footer, product" className="md:col-span-2 md:col-start-7">
-          <h2 className="eyebrow mb-3">Product</h2>
-          <ul>
-            {FOOTER_LINKS.product.map((item) => (
-              <li key={item.href}>
-                <Link href={item.href} prefetch={false} className={linkClass}>
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <div className="mt-20 grid gap-10 sm:grid-cols-3 md:mt-24 md:max-w-3xl">
+          {COLUMNS.map((col) => (
+            <nav key={col.title} aria-label={`Footer, ${col.title.toLowerCase()}`}>
+              <h2 className="eyebrow mb-3">{col.title}</h2>
+              <ul>
+                {col.links.map((item) => (
+                  <li key={item.href}>
+                    {item.href === '/editor' ? (
+                      // A full page load, so /editor gets its own security policy (OCR needs workers).
+                      <a href={item.href} className={linkClass}>
+                        {item.label}
+                      </a>
+                    ) : (
+                      <Link href={item.href} prefetch={false} className={linkClass}>
+                        {item.label}
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
+        </div>
 
-        <nav aria-label="Footer, legal" className="md:col-span-2">
-          <h2 className="eyebrow mb-3">Legal</h2>
-          <ul>
-            {FOOTER_LINKS.legal.map((item) => (
-              <li key={item.href}>
-                <Link href={item.href} prefetch={false} className={linkClass}>
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-            <li>
-              <a href={GITHUB_URL} className={linkClass} rel="noopener noreferrer" target="_blank">
-                GitHub
-                <ArrowUpRight className="ml-1 size-4" aria-hidden="true" />
-              </a>
-            </li>
-          </ul>
-        </nav>
-
-      </div>
-
-      <div className="border-t border-line">
-        <div className="container-page flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-6 text-sm text-ink-3">
+        <div className="mt-40 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-sm text-ink-3 md:mt-56">
           <p>
-            &copy; {year} {APP_NAME}
+            &copy; {year} {APP_NAME}. All rights reserved.
           </p>
           {release ? (
             <p className="font-mono text-xs">

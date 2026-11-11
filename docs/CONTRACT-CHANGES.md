@@ -423,3 +423,142 @@ signed by another key, future version, garbage) and no key (empty, whitespace). 
 2. Numbered steps renumber on delete (see above).
 3. The Inspector's Padding slider has a finer native step (0.1 percent) and the Angle slider a 1 degree step; arrow keys
    use the nudge unit instead of the native step.
+
+## Desktop backend integration pass (apps/desktop/src-tauri), additive
+
+Nothing in CONTRACTS section 5 was removed or renamed. Everything below is additive, or a stricter check on
+input that was already validated. It closes the "what it expects from the backend" list of the preview window
+section above.
+
+### Commands the preview already calls, now implemented
+
+- **`plugin:opener|reveal_item_in_dir({ paths })` and `plugin:opener|open_url({ url })`.** Same names and
+  arguments as the general-purpose Tauri opener plugin, but implemented by a small in-app plugin
+  (`src/opener_plugin.rs`, declared with `tauri_build::InlinedPlugin`), so no dependency was added and the rules
+  are narrower: `open_url` accepts only `https://` links to a named host (at least two labels, TLD not numeric,
+  no credentials, no whitespace, at most 2048 bytes); `reveal_item_in_dir` accepts 1 to 16 paths, all of which
+  must be plain absolute Windows paths to existing png/jpg/jpeg/webp/gif files, and reveals the first. Rules and
+  tests: `core/src/opener.rs`. The preview capability grants `opener:allow-reveal-item-in-dir` and
+  `opener:allow-open-url` (and `core:window:allow-internal-toggle-maximize` for the title bar's double-click).
+- **`export_save` honours the optional header `x-save-path`** (percent-encoded UTF-8, as the preview sends it).
+  The file is written exactly there and the written path is returned. The path must be a plain absolute Windows
+  path (no `..`, no `\?\` or `\.\`, no `:` streams, no wildcard characters), the file name must already be
+  clean (a reserved name such as `con.png` is refused, not renamed) and end in png/jpg/jpeg/webp matching the
+  content, and the folder must already exist. An existing file is replaced (the Save As dialog asked), an
+  existing folder never. A present but unusable header is an error; the file never lands anywhere else.
+
+### Window and event behaviour
+
+- The `preview` window is created undecorated (`.decorations(false)`): the UI draws its own title bar.
+- `capture:ready` is now emitted **before** the preview window is shown (region, window and scroll captures), so
+  the window never shows the previous capture for a frame (item 5 of the preview section).
+- `qs:incoming` and `qs:pair-code` (responder role) now bring the preview window forward (`qs:received` already did).
+  The app lives in the tray with the window hidden, so before this a prompt was invisible and the sender timed out.
+- Quick send advertises this PC over mDNS only while a device is paired or the pairing dialog is open
+  (docs/QUICKSEND.md section 4); opening the device list alone no longer announces the PC. Browsing is unchanged.
+- `shortcut:extra` is no longer emitted (the scroll and GIF shortcuts start their flows directly, see the
+  scrolling-capture section). `events.onShortcutExtra` in the preview client is dead and can be removed.
+
+### Limits and stricter validation
+
+- **Scrolling capture height** is capped at `min(16384, 120 000 000 / width)` rows instead of the media crate's
+  20 000, so the result can always be reopened from history and sent to the editor (the decoder refuses more
+  than 16384 px per side or 120 megapixels). A capture that hits the cap ends normally ("full").
+- `settings_set` `saveFolder` additionally refuses device namespaces (`\?\`, `\.\`), `:` in a folder name and
+  wildcard characters. Normal drive paths and UNC shares are unaffected.
+- `qs_*` device ids are 16 base32 characters; lower case is accepted and normalised to upper case (QUICKSEND.md
+  section 3). `qs_send` checks the id and the 50 MB limit before the body is copied, and ignores `x-filename` values
+  over 512 bytes (the protocol layer sanitises the rest).
+
+### License and build date
+
+`BUILD_DAYS` (CONTRACTS section 5b) is embedded by `build.rs` from `SOURCE_DATE_EPOCH` or the clock and parsed at
+compile time. It never falls back to day 0: an empty, non-numeric, pre-2026-01-01 or post-2100-01-01 value is a
+**compile error**, and a malformed `SOURCE_DATE_EPOCH` fails the build script. Without `SOURCE_DATE_EPOCH` the
+build script re-runs on every build so a cached build cannot embed an old date. The window maths now comes from
+`polishot-license` (`LicenseInfo::updates_until_days`, `covers_build`, `Entitlement`); the desktop copy was
+removed. A stored blank key reads as `no-key` (it used to read as `invalid`). The desktop status is asserted
+against the shared `entitlementCases` vectors.
+
+### CI
+
+`.github/workflows/desktop.yml` is now only the on-demand Windows installer build plus the capture-latency
+measurement (`workflow_dispatch` and `workflow_call`); fmt, clippy, tests and the UI checks are in `ci.yml`.
+The latency step runs `-p polishot-desktop-core`, where the ignored test lives.
+
+## Preview window UI, completion pass (apps/desktop/src/preview, src/shared, src/pin), additive
+
+No command, event or payload of CONTRACTS section 5 or of the entries above changed. This records what the preview
+now calls, so the backend and the mock stay in step.
+
+### Backend surface the UI now uses
+
+- **Quick send** (all of "Quick send" above): `qs_devices`, `qs_pairing_mode`, `qs_pair_start`, `qs_pair_confirm`,
+  `qs_send` (raw PNG body, headers `x-device-id`, `x-filename`), `qs_forget`, `qs_incoming_respond`, and the events
+  `qs:devices`, `qs:pair-code`, `qs:incoming`, `qs:received`. Payloads are shape-checked on arrival (device ids are
+  alphanumeric, the code must be `NNN NNN`, names lose control and bidirectional characters). The UI never
+  auto-confirms a code. The device list is **not** requested at launch unless this PC is known to have paired before
+  (webview `localStorage` key `polishot.qs.v1` = `"1"`), because the first `qs_devices` / `qs_pairing_mode` call is what
+  starts the listener and shows the Windows Firewall prompt.
+- **`capture_start` modes** `scroll` and `gif` (palette actions "Capture a scrolling window" Ctrl+Shift+L and "Record a
+  GIF" Ctrl+Shift+G, plus the Settings shortcuts) and the **`gif:saved`** event (toast with "Show in folder").
+  `shortcut:extra` is no longer subscribed to.
+- **Show in folder** tries `plugin:opener|reveal_item_in_dir` first (any saved image, including a Save As outside the
+  save folder), then `reveal_in_folder`, then copies the path.
+- **Batch beautify** (Free: 5 images per run, Pro: unlimited, enforced by the host per CONTRACTS 5b) uses only existing
+  commands: `open_file` for each chosen image (so its pixels come through `polishot://`), a private `Editor` to apply
+  the look and export, `export_save` to write `<name>-polished.<ext>` into the save folder, and `history_delete` to
+  remove the temporary capture that `open_file` registered, so a batch leaves the history as it was.
+
+### Behaviour
+
+- **Brand mark** now lives in the shared Inspector's "Brand mark" section (Style tab: `pro`, `onUpgrade`,
+  `onBrandMarkChange`); Settings keeps a mirror of it for Pro only. Both write the same remembered value
+  (`polishot.brandMark.v1`).
+- **Warm paper look** (owner direction): the preview overrides the neutrals of `@polishot/brand/tokens.css` for its
+  own window only (cream `#f7f2ea` / `#fffdf9` in light, a warmer near-black in dark), uses dark rounded keycaps and the
+  display serif for headings. The brand accent and the Print P mark are unchanged. If the brand package adopts the
+  same neutrals, the block at the top of `preview.css` can be deleted.
+- **Text layer vs shapes.** The editor's `TextLayer` takes every click while Select has nothing selected, so a shape or
+  note drawn over text could not be clicked. The preview hit-tests the document (`lib/annotationHit.ts`) and lets the
+  words step aside while the pointer is over an annotation. A real `editor.annotationAt(x, y)` would replace that
+  approximation.
+- **Pin window**: a small pill shows the opacity and a close button while the pointer is over the pin and for a moment
+  when it opens; Up/Down (and `+`/`-`) change the opacity like the wheel.
+- **Mock backend** (`?mock=1`, dev only) gained `qs=none|one|two|offline`, `qsdelay`, `qsfail`, `batch=N`, and
+  `window.__polishotMock.qs` helpers to play the phone's side. It is not part of a production build.
+
+## Web editor (apps/web/app/editor), host behaviour and the route-scoped CSP
+
+Nothing in CONTRACTS sections 4 or 5b changed. This records what the website host does with the shared editor, so the
+other hosts can match it and the website agent knows what the `/editor` route depends on.
+
+- **Free tier, always.** The site has no licence activation, so `new Editor(el, { licensed: false })`: every export carries
+  `WATERMARK_TEXT`, the Inspector shows the Brand mark row locked, and `onUpgrade` opens `/pricing` in a **new tab**
+  (leaving the page would throw away the work). The web editor opens one image at a time, so `batchLimit` does not apply
+  here; a future multi-image mode must use `batchLimit(false)` = 5.
+- **Saved looks** (`looks.ts`): `localStorage['polishot.looks.v1']` = JSON array of `{ id, name, settings }`, where
+  `settings` is `LookSettings`. Everything read back is rebuilt from known fields and run through `validateDoc` (bad
+  frame, colour, SVG background, duplicate or odd ids, prototype keys are dropped); at most 24 entries and 2,000,000
+  characters are read. The Free limit (`presetLimit(false)` = 3) is enforced on save as well as in the Inspector. Blocked
+  or full storage shows a plain message and the editor keeps working. Looks are style settings only, never images.
+- **Keys** (all ignored while typing in a text field; sliders, buttons and checkboxes do not count as text fields):
+  Ctrl/Cmd+K command palette (every action with its shortcut), Ctrl+S download, Ctrl+Shift+S share (where the browser
+  can), Ctrl+O open another image, Ctrl+C copy the finished image (unless text is selected), 1 to 4 switch the Style,
+  Redact, Text and Export panels. The editor package's own keys (tools, nudge, Ctrl+D, undo/redo) are unchanged.
+- **CSP.** `/editor` alone gets `worker-src 'self' blob:` and `'wasm-unsafe-eval'` (tesseract.js runs in a blob worker
+  built from files in `/ocr`); every other route keeps `worker-src 'none'`. A policy belongs to the *document*, so reaching
+  `/editor` through a client-side `<Link>` keeps the previous page's policy and blocks the engine. `csp.ts` handles it: if
+  the browser's navigation entry says the document was not `/editor`, the editor reloads itself once (guard:
+  `sessionStorage['polishot.editor.reloaded']`, 30 s) before any image is open; if the engine is still blocked later it
+  reloads only when nothing has been edited, otherwise it shows "The browser blocked text recognition on this page" with a
+  Reload button. Links to `/editor` should still be full page loads (`<a>`), which avoids the reload altogether. The same
+  rule works in the other direction: leaving `/editor` through a client-side link keeps its looser policy on the next page
+  until a full load; one uniform policy for all routes would remove the whole class of problem.
+- **Test hooks.** `[data-testid="editor-studio"]` mirrors `data-padding`, `data-annotations`, `data-steps` (for example
+  `1,2`), `data-selected`, `data-tool` and `data-last` (newest annotation in source pixels, for example `arrow:10,20,110,120`).
+- **Known gap (packages/editor, not the host).** Exporting a 4K capture rasterises on the main thread inside `toBlob`:
+  measured on a fully loaded machine, copy of a 3786 x 2566 export blocks the page for 9 to 12 s (about 4 to 6 s with the
+  shadow at 0), against 0.4 to 0.6 s for a plain canvas of the same size. The soft shadow is about half of it; the rest is the
+  full-size draw and the PNG encode, none of which is cheap on the main thread. The host paints "Copying" before the work starts; the <300 ms bar of docs/UX-BAR.md needs the export to reuse
+  the reduced-resolution shadow it already uses on screen and/or render in a worker with `OffscreenCanvas`.

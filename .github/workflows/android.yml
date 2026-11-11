@@ -1,38 +1,42 @@
 name: Android
 
-# Builds, tests and lints the Android app (apps/android), and runs the instrumented tests on an emulator.
-# Artifacts: Polishot.apk and Polishot.aab. They are signed with the release keystore when the repository
-# secrets below exist, and with the debug key otherwise (fine for testing, not for the Play Store).
+# Builds, tests and lints the Android app (apps/android) and, on request, runs the instrumented tests on an
+# emulator. Artifacts: Polishot.apk and Polishot.aab.
 #
-# Optional secrets: POLISHOT_KEYSTORE_BASE64, POLISHOT_KEYSTORE_PASSWORD, POLISHOT_KEY_ALIAS, POLISHOT_KEY_PASSWORD.
+# Reusable workflow: the root CI (.github/workflows/ci.yml) calls it with `uses: ./.github/workflows/android.yml`.
+# It has no push or pull_request trigger of its own, so a push is built once (by the caller), not twice.
+# It can also be started by hand from the Actions tab (workflow_dispatch).
+#
+# Signing: with the optional secrets below the release APK/AAB are signed with your keystore; without them they
+# are signed with the debug key (fine for testing, not for the Play Store). The root CI deliberately does not
+# pass them (no `secrets: inherit`), because release.yml does the real signing on a version tag.
+#
+# The emulator job (about an hour) only runs when `emulator` is true.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/android/**'
-      - 'packages/brand/**'
-      - 'packages/editor/**'
-      - 'packages/redact/**'
-      - 'packages/license/**'
-      - 'packages/quicksend-vectors/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/android.yml'
-  pull_request:
-    paths:
-      - 'apps/android/**'
-      - 'packages/brand/**'
-      - 'packages/editor/**'
-      - 'packages/redact/**'
-      - 'packages/license/**'
-      - 'packages/quicksend-vectors/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/android.yml'
+  workflow_call:
+    inputs:
+      emulator:
+        description: Also run the instrumented tests (connectedCheck) on an API 34 emulator.
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      POLISHOT_KEYSTORE_BASE64:
+        required: false
+      POLISHOT_KEYSTORE_PASSWORD:
+        required: false
+      POLISHOT_KEY_ALIAS:
+        required: false
+      POLISHOT_KEY_PASSWORD:
+        required: false
   workflow_dispatch:
-
-concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      emulator:
+        description: Also run the instrumented tests (connectedCheck) on an API 34 emulator.
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +52,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
@@ -134,10 +140,13 @@ jobs:
 
   instrumented:
     name: Emulator tests (API 34)
+    if: ${{ inputs.emulator }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 

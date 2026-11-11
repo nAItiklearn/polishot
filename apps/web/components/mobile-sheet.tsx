@@ -30,7 +30,6 @@ export default function MobileSheet({ open, onOpenChange, returnFocusTo }: Mobil
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        data-theme="dark"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           returnFocusTo.current?.focus();
@@ -59,7 +58,18 @@ export default function MobileSheet({ open, onOpenChange, returnFocusTo }: Mobil
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 <SheetClose asChild>
-                  <Link href={item.href} className="display-3 block py-5 text-ink">
+                  <Link
+                    href={item.href}
+                    prefetch={item.href === '/editor' ? false : undefined}
+                    onClick={(e) => {
+                      // /editor needs its own security policy, which only a full page load applies.
+                      if (item.href === '/editor') {
+                        e.preventDefault();
+                        window.location.assign(item.href);
+                      }
+                    }}
+                    className="display-3 block py-5 text-ink"
+                  >
                     {item.label}
                   </Link>
                 </SheetClose>

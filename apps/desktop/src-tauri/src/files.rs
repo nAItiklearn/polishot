@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::AppHandle;
 
-use crate::export::{lowercase_ext, save_export};
+use crate::export::{lowercase_ext, percent_decode, save_export, save_export_at};
 use crate::imgio::{self, ALLOWED_INPUT_EXTS, MAX_FILE_BYTES};
 use crate::settings::validate_save_folder;
 use crate::state::{register_capture, state};
@@ -40,7 +40,19 @@ pub fn open_file(app: &AppHandle, raw_path: &str) -> Result<CaptureMeta, String>
     ))
 }
 
-pub fn export_save(app: &AppHandle, bytes: &[u8], filename: &str) -> Result<String, String> {
+/// `export_save`: into the save folder under a sanitised name, or, when the Save As dialog picked
+/// a place (header `x-save-path`, percent-encoded), exactly there after strict checks.
+pub fn export_save(
+    app: &AppHandle,
+    bytes: &[u8],
+    filename: &str,
+    save_path: Option<&str>,
+) -> Result<String, String> {
+    if let Some(encoded) = save_path {
+        let decoded = percent_decode(encoded)?;
+        let target = save_export_at(Path::new(&decoded), bytes)?;
+        return Ok(target.to_string_lossy().into_owned());
+    }
     let folder = state(app).settings().save_folder;
     validate_save_folder(&folder)?;
     let target = save_export(Path::new(folder.trim()), bytes, filename)?;

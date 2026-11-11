@@ -193,7 +193,7 @@ fn run_scroll(
         pane,
         stop: stop.clone(),
     };
-    let result = scroll::run(&mut src, &ScrollConfig::default());
+    let result = scroll::run(&mut src, &ScrollConfig::for_pane_width(pane.w as u32));
     close_status(app, "status-pill");
     if let Some((x, y)) = saved_cursor {
         let _ = winutil::set_cursor_pos(x, y);
@@ -215,8 +215,9 @@ fn run_scroll(
         out.frame.rgba,
         Source::Scroll,
     );
-    winmgr::show_preview(app);
+    // Event first, window second: the preview must not flash the previous capture.
     let _ = app.emit_to(winmgr::PREVIEW, "capture:ready", &meta);
+    winmgr::show_preview(app);
     if matches!(out.reason, StopReason::StitchFailed) {
         // The image is still delivered; say why it may end early.
         show_toast(

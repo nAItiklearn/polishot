@@ -9,6 +9,10 @@ const longestMotionSeconds = (page: Page) =>
         .reduce((a, b) => Math.max(a, b), 0);
     let longest = 0;
     for (const el of document.querySelectorAll('*')) {
+      // Live product demos ([data-demo]) may animate longer than UI controls. They are still checked
+      // under reduced motion, where everything must be off.
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches && el.closest('[data-demo]'))
+        continue;
       const s = getComputedStyle(el);
       longest = Math.max(longest, seconds(s.transitionDuration), seconds(s.animationDuration));
     }
@@ -33,7 +37,9 @@ test.describe('motion', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     for (const path of ['/', '/features', '/pricing', '/download']) {
       await page.goto(path);
-      expect(await longestMotionSeconds(page), `${path} has no perceptible motion`).toBeLessThan(0.001);
+      expect(await longestMotionSeconds(page), `${path} has no perceptible motion`).toBeLessThan(
+        0.001,
+      );
     }
   });
 
@@ -49,6 +55,8 @@ test.describe('motion', () => {
   test('the page does not scroll smoothly under reduced motion', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
-    expect(await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior)).toBe('auto');
+    expect(
+      await page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior),
+    ).toBe('auto');
   });
 });

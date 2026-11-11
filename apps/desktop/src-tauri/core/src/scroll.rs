@@ -55,10 +55,30 @@ pub struct ScrollConfig {
     pub max_steps: u32,
 }
 
+/// Tallest stitched image for a pane of `width` pixels that the rest of the app can still open:
+/// the result is registered like any capture, saved as PNG, reloaded from history and sent to the
+/// editor, and all of those refuse images beyond the decoder's per-side and pixel limits
+/// (`imgio::MAX_DIMENSION`, `imgio::MAX_PIXELS`). The media crate's own default (20 000 rows)
+/// would produce a capture that cannot be reopened from history.
+pub fn max_height_for_width(width: u32) -> u32 {
+    let by_pixels = crate::imgio::MAX_PIXELS / u64::from(width.max(1));
+    by_pixels.min(u64::from(crate::imgio::MAX_DIMENSION)) as u32
+}
+
+impl ScrollConfig {
+    /// Defaults for a pane `width` pixels wide.
+    pub fn for_pane_width(width: u32) -> Self {
+        Self {
+            max_height: max_height_for_width(width),
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for ScrollConfig {
     fn default() -> Self {
         Self {
-            max_height: 20_000,
+            max_height: crate::imgio::MAX_DIMENSION,
             max_duration: Duration::from_secs(90),
             settle_ms: 120,
             settle_poll_ms: 40,
@@ -367,6 +387,26 @@ mod tests {
 
     fn cfg() -> ScrollConfig {
         ScrollConfig::default()
+    }
+
+    #[test]
+    fn the_stitched_height_cap_always_leaves_a_reopenable_image() {
+        use crate::imgio::{MAX_DIMENSION, MAX_PIXELS};
+        for width in [1u32, 64, 800, 1280, 1920, 2560, 3840, 7680, 16_384] {
+            let cap = max_height_for_width(width);
+            assert!(cap >= 1, "width {width}");
+            assert!(cap <= MAX_DIMENSION, "width {width}: {cap} rows");
+            assert!(
+                u64::from(width) * u64::from(cap) <= MAX_PIXELS,
+                "width {width}: {cap} rows"
+            );
+            assert_eq!(ScrollConfig::for_pane_width(width).max_height, cap);
+        }
+        // Typical panes get the full side limit; very wide ones are limited by pixel count.
+        assert_eq!(max_height_for_width(1920), MAX_DIMENSION);
+        assert_eq!(max_height_for_width(3840), MAX_DIMENSION);
+        assert_eq!(max_height_for_width(16_384), 7_324);
+        assert_eq!(ScrollConfig::default().max_height, MAX_DIMENSION);
     }
 
     #[test]

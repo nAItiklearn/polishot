@@ -1,1 +1,154 @@
-.
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind - Billing</title>
+<!--
+  The subject of every Polishot demo: a made-up billing screen with a fake email, a payment-card test number
+  and a documentation IP address (203.0.113.0/24 is reserved for examples). Nothing here is real.
+  Self-contained on purpose: no network, no web fonts, so it renders the same everywhere.
+
+  The solid, uneven margin around the window is deliberate: auto-balance trims it.
+  Designed for a 1280 x 800 viewport (it scales down to fit smaller windows); the Windows demo shows it live in a
+  browser app window and the Playwright demo renders it to out/web/sample-billing.png at 2x.
+-->
+<style>
+  :root {
+    --margin: #e9e7e2;
+    --ink: #1b1a17;
+    --muted: #6d6a62;
+    --line: #e4e1da;
+    --side: #26241f;
+    --accent: #d9663f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--margin);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .window {
+    position: absolute;
+    left: 56px;
+    top: 40px;
+    width: 1200px;
+    height: 688px;
+    display: flex;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04);
+  }
+  aside {
+    width: 220px;
+    background: var(--side);
+    color: #b9b5ab;
+    padding: 24px 12px;
+    display: flex;
+    flex-direction: column;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px 28px;
+    color: #f4f2ee;
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .brand i { width: 24px; height: 24px; border-radius: 7px; background: var(--accent); display: block; }
+  nav a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 40px;
+    padding: 0 16px;
+    margin-bottom: 4px;
+    border-radius: 8px;
+    font-size: 17px;
+  }
+  nav a i { width: 14px; height: 14px; border-radius: 4px; background: #8f8b80; display: block; }
+  nav a.on { background: #38352e; color: #f4f2ee; font-weight: 600; }
+  .me { margin-top: auto; padding: 0 12px; display: flex; align-items: center; gap: 10px; font-size: 16px; color: #d8d4c9; }
+  .me i { width: 28px; height: 28px; border-radius: 50%; background: #4a463d; display: block; }
+
+  main { flex: 1; padding: 32px 40px; min-width: 0; }
+  h1 { margin: 0; font-size: 34px; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { margin: 6px 0 26px; font-size: 18px; color: var(--muted); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; }
+  .card h2 { margin: 0 0 14px; font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; font-size: 21px; }
+  .row span:first-child { color: var(--muted); font-size: 18px; }
+  .row b { font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .wide { grid-column: 1 / -1; }
+  table { width: 100%; border-collapse: collapse; font-size: 18px; }
+  th { text-align: left; font-weight: 600; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0 0 10px; }
+  td { padding: 9px 0; border-top: 1px solid var(--line); }
+  td:last-child, th:last-child { text-align: right; }
+  .paid { color: #2f7d4f; font-weight: 600; }
+  .btn { display: inline-block; margin-top: 14px; padding: 9px 18px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 17px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="window">
+    <aside>
+      <div class="brand"><i></i>Northwind</div>
+      <nav>
+        <a><i></i>Overview</a>
+        <a><i></i>Projects</a>
+        <a class="on"><i></i>Billing</a>
+        <a><i></i>Team</a>
+        <a><i></i>Settings</a>
+      </nav>
+      <div class="me"><i></i>Alex Morgan</div>
+    </aside>
+    <main>
+      <h1>Billing</h1>
+      <p class="sub">Your plan, payment method and invoices.</p>
+      <div class="grid">
+        <section class="card">
+          <h2>Billing contact</h2>
+          <div class="row"><span>Name</span><b>Alex Morgan</b></div>
+          <div class="row"><span>Email</span><b>alex.morgan@example.com</b></div>
+          <div class="row"><span>Last sign-in</span><b class="num">203.0.113.42</b></div>
+        </section>
+        <section class="card">
+          <h2>Payment method</h2>
+          <div class="row"><span>Visa</span><b class="num">4242 4242 4242 4242</b></div>
+          <div class="row"><span>Expires</span><b>08 / 29</b></div>
+          <div class="row"><span>Plan</span><b>Team, $48 a month</b></div>
+        </section>
+        <section class="card wide">
+          <h2>Recent invoices</h2>
+          <table>
+            <thead><tr><th>Invoice</th><th>Date</th><th>Status</th><th>Amount</th></tr></thead>
+            <tbody>
+              <tr><td>NW-2041</td><td>1 Nov 2026</td><td class="paid">Paid</td><td>$48.00</td></tr>
+              <tr><td>NW-2012</td><td>1 Oct 2026</td><td class="paid">Paid</td><td>$48.00</td></tr>
+              <tr><td>NW-1987</td><td>1 Sep 2026</td><td class="paid">Paid</td><td>$48.00</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script>
+    // The design is 1280 x 800. On a scaled display a browser window is fewer CSS pixels than that, so shrink the page
+    // to fit instead of cutting it off. At 1280 x 800 or larger nothing changes.
+    (function () {
+      function fit() {
+        var z = Math.min(1, window.innerWidth / 1280, window.innerHeight / 800);
+        document.body.style.zoom = z < 0.999 ? String(z) : '';
+      }
+      fit();
+      window.addEventListener('resize', fit);
+    })();
+  </script>
+</body>
+</html>

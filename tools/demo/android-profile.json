@@ -1,1 +1,72 @@
-.
+{
+  "schema": 1,
+  "description": "Settings for tools/demo/android-demo.sh. Relative paths are relative to the repository root. Times are seconds at --pace 1.",
+
+  "package": "app.polishot",
+  "minSdk": 29,
+  "activities": {
+    "home": "app.polishot/.MainActivity",
+    "share": "app.polishot/.ShareAlias",
+    "editorClass": "EditorActivity"
+  },
+
+  "apk": {
+    "description": "First file that exists wins. Pass --apk to override. The CI release job produces Polishot.apk; a local build produces app-debug.apk.",
+    "candidates": [
+      "tools/demo/out/installer/Polishot.apk",
+      "apps/android/app/build/outputs/apk/release/app-release.apk",
+      "apps/android/app/build/outputs/apk/debug/app-debug.apk"
+    ]
+  },
+
+  "avd": {
+    "description": "Used only with --boot-avd. The emulator image needs no Google Play: text recognition is bundled and nothing touches the network.",
+    "name": "polishot_demo",
+    "device": "pixel_8",
+    "systemImage": "system-images;android-35;google_apis;x86_64",
+    "bootTimeoutSeconds": 300,
+    "emulatorArgs": ["-no-snapshot-save", "-no-boot-anim", "-no-audio", "-gpu", "auto", "-netdelay", "none", "-netspeed", "full"]
+  },
+
+  "recording": {
+    "description": "adb shell screenrecord limits: 180 s at most per file. bitRate is bits per second.",
+    "bitRate": 10000000,
+    "timeLimitSeconds": 120
+  },
+
+  "sample": {
+    "description": "The made-up billing screen (same image as the web and Windows demos). Render it with: node tools/demo/web-flow-demo.mjs --sample-only",
+    "localPng": "tools/demo/out/web/sample-billing.png",
+    "deviceDir": "/sdcard/Pictures/PolishotDemo",
+    "fileName": "northwind-billing.png",
+    "expectedEmail": "alex.morgan@example.com"
+  },
+
+  "saved": {
+    "description": "Where the editor's Save writes (MediaStore relative_path).",
+    "relativePath": "Pictures/Polishot/"
+  },
+
+  "timing": {
+    "afterHome": 2.5,
+    "afterEditorOpens": 3.6,
+    "afterHide": 3.0,
+    "afterCopyText": 2.6,
+    "afterSave": 3.4,
+    "tail": 1.2
+  },
+
+  "ui": {
+    "description": "Text the script looks for in the screen's accessibility tree (a regular expression, case-insensitive). The editor is a WebView; if its nodes are not exposed on your image, the script taps the fractional position in 'fallback' instead (x, y as a fraction of the screen, approximate for a 20:9 phone).",
+    "hide": "^[0-9]+ found$|sensitive items? found",
+    "copyText": "^Copy text$",
+    "save": "Save to gallery",
+    "tabRedact": "^Redact$",
+    "fallback": {
+      "hide": [0.43, 0.092],
+      "copyText": [0.15, 0.092],
+      "save": [0.65, 0.04],
+      "tabRedact": [0.375, 0.965]
+    }
+  }
+}
