@@ -13,7 +13,8 @@
   height: calc(100dvh - var(--ed-top));
   min-height: 520px;
   overflow: hidden;
-  background: var(--ps-bg);
+  /* No fill of its own: the site's paper (and its grain) shows around the drop area. */
+  background: transparent;
   border-bottom: 1px solid var(--ps-border);
 }
 
@@ -56,14 +57,17 @@
   color: var(--ps-text-2);
 }
 
+/* The type itself (serif, weight, size) comes from the site's display-3 utility, so it follows the site. */
 .ed-empty-title {
   margin: 20px 0 0;
-  font-family: var(--font-instrument-serif), Georgia, 'Times New Roman', serif;
-  font-size: clamp(1.75rem, 1.4rem + 1.4vw, 2.5rem);
-  font-weight: 400;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
   color: var(--ps-text);
+}
+
+/* The site's headline voice: serif, with one italic phrase in the accent colour. */
+.ed-empty-title em {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--ps-accent-text);
 }
 
 .ed-empty-lede {
@@ -180,5 +184,17 @@
   .ed-empty {
     margin: 12px;
     padding: 24px 16px;
+  }
+}
+
+/* "Opening" only appears if the editor takes a moment, so a fast open never flashes a word. The duration token is 0 under reduced motion, so the delay is all that remains. */
+.ed-opening:not([role="alert"]) {
+  opacity: 0;
+  animation: ed-opening-in var(--ps-dur) var(--ps-ease) 400ms forwards;
+}
+
+@keyframes ed-opening-in {
+  to {
+    opacity: 1;
   }
 }

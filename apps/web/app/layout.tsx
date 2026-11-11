@@ -1,35 +1,43 @@
 import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
-import { GeistSans } from 'geist/font/sans';
 import { APP_NAME, palette } from '@polishot/brand';
 import { SiteHeader } from '@/components/site-header';
 import { SiteFooter } from '@/components/site-footer';
 import { DESCRIPTION, SITE_URL, TAGLINE } from '@/lib/site';
 import './globals.css';
 
-const instrumentSerif = localFont({
+// Display: Cormorant Garamond, variable weight, with a true italic. Set bold; the italic carries the accent.
+const serif = localFont({
   src: [
     {
-      path: '../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2',
-      weight: '400',
+      path: '../node_modules/@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2',
+      weight: '300 700',
       style: 'normal',
     },
     {
-      path: '../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2',
-      weight: '400',
+      path: '../node_modules/@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-italic.woff2',
+      weight: '300 700',
       style: 'italic',
     },
   ],
-  variable: '--font-instrument-serif',
-  // 'optional': if the (preloaded) font misses its first-paint window the page keeps the metric-matched
-  // fallback instead of swapping later, so a 100px headline can never jump.
-  display: 'optional',
+  variable: '--font-serif-face',
+  display: 'swap',
   fallback: ['Georgia', 'Times New Roman', 'serif'],
   adjustFontFallback: 'Times New Roman',
 });
 
-// Geist Mono is only used for small labels, keys and code, so it is not preloaded and only the
-// regular weight is shipped (the variable file is 20 KB larger).
+// Body and UI: Instrument Sans, variable weight.
+const sans = localFont({
+  src: '../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2',
+  weight: '400 700',
+  variable: '--font-sans-face',
+  display: 'swap',
+  fallback: ['Segoe UI Variable Text', 'Segoe UI', 'system-ui', 'sans-serif'],
+  adjustFontFallback: 'Arial',
+});
+
+// Geist Mono is only used for keys and code inside the demos, so it is not preloaded and only the
+// regular weight is shipped.
 const geistMono = localFont({
   src: '../node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.woff2',
   weight: '400',
@@ -57,17 +65,17 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // The site is dark only.
-  colorScheme: 'dark',
-  themeColor: palette.dark.bg,
+  // The site has one theme: light.
+  colorScheme: 'light',
+  themeColor: palette.light.bg,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
-      data-theme="dark"
-      className={`${GeistSans.variable} ${geistMono.variable} ${instrumentSerif.variable}`}
+      data-theme="light"
+      className={`${sans.variable} ${geistMono.variable} ${serif.variable}`}
     >
       <body>
         <a

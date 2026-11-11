@@ -1,5 +1,5 @@
 import { APP_NAME, WATERMARK_TEXT } from '@polishot/brand';
-import { FREE_LIMITS } from './site';
+import { FREE_LIMITS, SHARE_SAFE_SOON } from './site';
 
 export type Platform = 'Windows' | 'Android' | 'Windows and Android';
 
@@ -10,6 +10,8 @@ export interface Feature {
   /** Plain sentences. Keys and shortcuts go in `keys`, not in the prose. */
   body: string[];
   keys?: string[];
+  /** Set only for features that are not in the current version. Shown as a label next to the name. */
+  soon?: string;
 }
 
 export interface FeatureGroup {
@@ -63,7 +65,9 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         id: 'gif',
         name: 'GIF capture',
         platform: 'Windows',
-        body: ['Record a region at 15 frames per second for up to 15 seconds and save it as a GIF.'],
+        body: [
+          'Record a region at 15 frames per second for up to 15 seconds and save it as a GIF.',
+        ],
       },
       {
         id: 'bubble',
@@ -164,6 +168,16 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         ],
       },
       {
+        id: 'share-safe',
+        name: 'Share-safe check',
+        platform: BOTH,
+        soon: SHARE_SAFE_SOON,
+        body: [
+          'A last look before you copy or export. The finished image is scanned once more, on your device, for email addresses, API keys, card numbers, faces and QR codes, and anything found is offered for one-click blur.',
+          `It is not in the current version of ${APP_NAME}. It is planned for v0.2.`,
+        ],
+      },
+      {
         id: 'redact-limits',
         name: 'Check the result',
         platform: BOTH,
@@ -225,7 +239,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         name: 'Quick send',
         platform: BOTH,
         body: [
-          'Send an image between your PC and your phone over the local network. Pair once by confirming a six-digit code on both screens.',
+          'Take a screenshot on your phone and send it to your PC, or the other way round, over the local network. Pair once by confirming a six-digit code on both screens.',
           'Transfers are encrypted with AES-256-GCM and go directly between the two devices. The receiving side accepts or declines each one. No account, no cloud. Windows may ask about its firewall the first time.',
         ],
       },

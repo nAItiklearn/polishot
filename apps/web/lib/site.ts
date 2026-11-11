@@ -66,5 +66,11 @@ export const FOOTER_LINKS = {
   ],
 } as const;
 
-export const TAGLINE = 'Screenshots, finished in about two seconds.';
-export const DESCRIPTION = `${APP_NAME} turns a screenshot into a clean, shareable image in about two seconds. It balances the framing, covers emails, cards, IPs and API keys, copies the text, and exports. Free for Windows and Android.`;
+export const TAGLINE = 'Polished screenshots, private by default.';
+export const DESCRIPTION = `${APP_NAME} turns a screenshot into a clean, shareable image in about two seconds, on your own device. It balances the framing, covers emails, cards, IPs and API keys, copies the text, and sends images from your phone to your PC. Free for Windows and Android. Pro is ${LICENSE_PRICE}, once.`;
+
+/**
+ * Not shipped yet. Anything that mentions the Share-safe check must say so with this label; never describe
+ * it in the present tense. (Roadmap: PLAN.md section 7.)
+ */
+export const SHARE_SAFE_SOON = 'Coming in v0.2';

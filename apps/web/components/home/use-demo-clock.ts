@@ -14,8 +14,10 @@ interface DemoClockOptions {
 export interface DemoClock<T extends HTMLElement> {
   ref: React.RefObject<T | null>;
   step: number;
-  /** 0..1 progress through the current step (0 when paused or under reduced motion). */
-  progress: number;
+  /** Increments whenever a step starts or restarts. Use it as a React key to restart CSS progress. */
+  epoch: number;
+  /** Length of the current step in ms. */
+  stepDuration: number;
   playing: boolean;
   reduced: boolean;
   /** Jump to a step. Playback continues from there. */
@@ -36,18 +38,24 @@ export function useDemoClock<T extends HTMLElement>({
 }: DemoClockOptions): DemoClock<T> {
   const ref = useRef<T | null>(null);
   const [step, setStep] = useState(restingStep);
-  const [progress, setProgress] = useState(0);
+  // Bumped every time a step (re)starts. Lets CSS restart the progress animation without per-frame state.
+  const [epoch, setEpoch] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [pageHidden, setPageHidden] = useState(false);
   const [held, setHeld] = useState(false);
   const [reduced, setReduced] = useState(true);
   const [started, setStarted] = useState(false);
   const elapsed = useRef(0);
   const stepRef = useRef(step);
   stepRef.current = step;
+  const epochRef = useRef(epoch);
+  epochRef.current = epoch;
 
   const lengthOf = useCallback(
     (i: number) => (Array.isArray(duration) ? (duration[i] ?? duration[0] ?? 2000) : duration),
-    [duration],
+    // Callers pass array literals; compare by value so a re-render does not restart the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [Array.isArray(duration) ? duration.join(',') : duration],
   );
 
   useEffect(() => {
@@ -56,6 +64,13 @@ export function useDemoClock<T extends HTMLElement>({
     update();
     query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    const update = () => setPageHidden(document.visibilityState === 'hidden');
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
   }, []);
 
   useEffect(() => {
@@ -74,42 +89,48 @@ export function useDemoClock<T extends HTMLElement>({
       setStarted(true);
       elapsed.current = 0;
       setStep(0);
+      setEpoch((e) => e + 1);
     }
   }, [visible, reduced, started]);
 
-  const playing = visible && !reduced && !held && started;
+  const playing = visible && !pageHidden && !reduced && !held && started;
 
+  // One timer per step, not one render per frame. Pausing keeps the time already spent on the step.
   useEffect(() => {
     if (!playing) return;
-    let frame = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = document.visibilityState === 'visible' ? Math.min(now - last, 100) : 0;
-      last = now;
-      elapsed.current += dt;
-      const length = lengthOf(stepRef.current);
-      if (elapsed.current >= length) {
-        elapsed.current = 0;
-        setProgress(0);
-        setStep((stepRef.current + 1) % steps);
-      } else {
-        setProgress(elapsed.current / length);
-      }
-      frame = requestAnimationFrame(tick);
+    const mine = epochRef.current;
+    const startedAt = performance.now();
+    const remaining = Math.max(0, lengthOf(stepRef.current) - elapsed.current);
+    const timer = window.setTimeout(() => {
+      elapsed.current = 0;
+      setStep((stepRef.current + 1) % steps);
+      setEpoch((e) => e + 1);
+    }, remaining);
+    return () => {
+      window.clearTimeout(timer);
+      // Only a pause (same step) keeps the elapsed time; a step change already reset it.
+      if (epochRef.current === mine) elapsed.current += performance.now() - startedAt;
     };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [playing, steps, lengthOf]);
+  }, [playing, epoch, steps, lengthOf]);
 
   const goTo = useCallback(
     (next: number) => {
       setStarted(true);
       elapsed.current = 0;
-      setProgress(0);
       setStep(((next % steps) + steps) % steps);
+      setEpoch((e) => e + 1);
     },
     [steps],
   );
 
-  return { ref, step, progress: reduced ? 0 : progress, playing, reduced, goTo, hold: setHeld };
+  return {
+    ref,
+    step,
+    epoch,
+    stepDuration: lengthOf(step),
+    playing,
+    reduced,
+    goTo,
+    hold: setHeld,
+  };
 }

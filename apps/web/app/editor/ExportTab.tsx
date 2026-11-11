@@ -19,6 +19,19 @@ type ExportAction = 'download' | 'copy' | 'share';
 
 const FORMAT_LABEL: Record<ExportSettings['format'], string> = { png: 'PNG', jpeg: 'JPEG', webp: 'WebP' };
 
+/** Resolves after the browser has painted the current state (with a cap, for tabs that do not paint). */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const cap = window.setTimeout(resolve, 120);
+    requestAnimationFrame(() =>
+      window.setTimeout(() => {
+        window.clearTimeout(cap);
+        resolve();
+      }, 0),
+    );
+  });
+}
+
 function explain(err: unknown, action: ExportAction): string {
   if (err instanceof DOMException && err.name === 'NotAllowedError') {
     return action === 'copy'
@@ -46,13 +59,19 @@ export function useExporter(editor: Editor, settings: ExportSettings, notify: No
       setBusy(action);
       try {
         const base = { quality: settings.quality, scale: settings.scale, licensed: editor.licensed };
+        const render = async (format: ExportSettings['format'], quality: number) => {
+          // Rendering a large image keeps the browser busy for a moment, so let it paint "Copying" first.
+          await nextPaint();
+          return editor.export({ ...base, format, quality });
+        };
         if (action === 'copy') {
-          // Clipboard images are PNG. The render is handed over as a promise so Safari keeps the click's permission.
-          await copyImage(editor.export({ ...base, format: 'png', quality: 1 }));
+          // Clipboard images are PNG. The render is handed over as a promise (created right here, inside the
+          // click or key press) so Safari keeps the permission while the image is being drawn.
+          await copyImage(render('png', 1));
           notify('Copied');
           return;
         }
-        const blob = await editor.export({ ...base, format: settings.format });
+        const blob = await render(settings.format, settings.quality);
         const filename = `${APP_SLUG}-${timestamp()}.${EXTENSION[settings.format]}`;
         if (action === 'download') {
           downloadBlob(blob, filename);
@@ -210,8 +229,10 @@ export function ExportTab({ editor, settings, onSettings, exporter }: ExportTabP
           {!editor.licensed && (
             <p className="pe-hint">
               Free exports include a small watermark.{' '}
-              <Link href="/pricing" className="ed-link">
+              {/* A new tab: leaving this page would throw away the work in progress. */}
+              <Link href="/pricing" className="ed-link" target="_blank" rel="noopener">
                 Remove it with Pro
+                <span className="sr-only"> (opens in a new tab)</span>
               </Link>
               .
             </p>

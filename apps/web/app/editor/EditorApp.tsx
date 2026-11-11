@@ -23,8 +23,10 @@ import {
 } from 'react';
 import './shell.css';
 import { EmptyState } from './EmptyState';
+import { loadedAsEditorRoute, reloadOnce } from './csp';
 import { ACCEPT_ATTR, ImageError, loadImageFile, type LoadedImage } from './image';
 import { loadSample } from './sample';
+import { isTextEntry } from './textEntry';
 
 const importWorkspace = () => import('./Workspace');
 const Workspace = lazy(importWorkspace);
@@ -64,10 +66,6 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   }
 }
 
-function isTextEntry(t: EventTarget | null): boolean {
-  return t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
-}
-
 /** Tracks the sticky site header so the app fills exactly the rest of the viewport. */
 function useHeaderOffset(root: React.RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
@@ -95,6 +93,13 @@ export default function EditorApp() {
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useHeaderOffset(rootRef);
+
+  // The Content-Security-Policy belongs to the document the browser loaded. Arriving here through a client-side
+  // link from another page keeps that page's stricter policy (no blob workers, no WebAssembly), which blocks
+  // text recognition, so load /editor fresh once. There is nothing to lose yet: no image is open.
+  useEffect(() => {
+    if (loadedAsEditorRoute() === false) reloadOnce();
+  }, []);
 
   const dismiss = useCallback(() => {
     clearTimeout(noticeTimer.current);

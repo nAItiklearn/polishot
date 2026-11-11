@@ -198,8 +198,7 @@ export function HeroDemo() {
       <div className="mx-auto mt-6 max-w-[760px]">
         <ol className="grid grid-cols-5 gap-2" aria-label="Demo steps">
           {STEPS.map((s, i) => {
-            const fill = i < step ? 1 : i === step ? (clock.playing ? clock.progress : 1) : 0;
-            return (
+return (
               <li key={s.id}>
                 <button
                   type="button"
@@ -207,16 +206,21 @@ export function HeroDemo() {
                   aria-current={i === step ? 'step' : undefined}
                   className="group block w-full rounded-md pb-1 pt-2 text-left"
                 >
-                  <span className="demo-scrub">
-                    <span style={{ transform: `scaleX(${fill})` }} />
-                  </span>
-                  <span
-                    className={cn(
-                      'mt-2.5 block text-[13px] font-medium transition-colors',
-                      i === step ? 'text-ink' : 'text-ink-3 group-hover:text-ink-2',
-                    )}
-                  >
-                    {s.label}
+                  <span className="demo-scrub" data-demo="">
+                    {i < step ? (
+                      <span style={{ transform: 'none' }} />
+                    ) : i === step ? (
+                      // Filled by a CSS animation of the step's length, paused with the demo.
+                      <span
+                        key={clock.epoch}
+                        className={clock.reduced ? undefined : 'is-running'}
+                        style={{
+                          transform: clock.reduced ? 'none' : undefined,
+                          animationDuration: `${clock.stepDuration}ms`,
+                          animationPlayState: clock.playing ? 'running' : 'paused',
+                        }}
+                      />
+                    ) : null}
                   </span>
                 </button>
               </li>

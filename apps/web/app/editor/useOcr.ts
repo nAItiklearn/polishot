@@ -2,7 +2,7 @@
 
 import type { OcrWord } from '@polishot/redact';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { disposeOcr, recognize, type OcrProgress, type OcrStage } from './ocr';
+import { disposeOcr, OcrError, recognize, type OcrProgress, type OcrStage } from './ocr';
 
 export interface OcrState {
   status: 'idle' | 'running' | 'done' | 'error';
@@ -12,9 +12,11 @@ export interface OcrState {
   /** 0..1 across the whole job (engine, model, reading). */
   progress: number;
   error: string | null;
+  /** The failure was the page's Content-Security-Policy, which only a fresh page load fixes. */
+  blocked: boolean;
 }
 
-const IDLE: OcrState = { status: 'idle', words: null, stage: 'engine', progress: 0, error: null };
+const IDLE: OcrState = { status: 'idle', words: null, stage: 'engine', progress: 0, error: null, blocked: false };
 
 /** Share of the progress bar each stage owns. Reading dominates on a large screenshot. */
 const STAGE_RANGE: Record<OcrStage, [number, number]> = {
@@ -66,10 +68,15 @@ export function useOcr(bitmap: ImageBitmap | null, imageId: string | null) {
     };
     try {
       const words = await recognize(bitmap, onProgress);
-      if (alive()) set({ status: 'done', words, stage: 'read', progress: 1, error: null });
+      if (alive()) set({ status: 'done', words, stage: 'read', progress: 1, error: null, blocked: false });
     } catch (err) {
       if (alive()) {
-        set({ ...IDLE, status: 'error', error: err instanceof Error ? err.message : 'Text recognition failed.' });
+        set({
+          ...IDLE,
+          status: 'error',
+          error: err instanceof Error ? err.message : 'Text recognition failed.',
+          blocked: err instanceof OcrError && err.blockedByPolicy,
+        });
       }
     }
   }, [bitmap, set]);

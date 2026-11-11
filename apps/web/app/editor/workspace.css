@@ -6,8 +6,9 @@
 
 .ed-studio {
   --ed-side: 280px;
-  --ed-font: var(--font-geist-sans), 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
-  --ed-mono: var(--font-geist-mono), ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  /* The site's own font stacks (Tailwind theme variables), so the editor always matches the page around it. */
+  --ed-font: var(--font-sans, 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif);
+  --ed-mono: var(--font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   flex: 1;
   min-height: 0;
   display: flex;
@@ -18,7 +19,7 @@
   color: var(--ps-text);
 }
 
-/* The shared UI names Geist Sans literally; point it at the font the site actually loads. */
+/* The shared UI names its own fonts; point it at the fonts the site actually loads. */
 .ed-studio :is(.pe-canvas, .pe-inspector, .pe-redact, .pe-export, .pe-textlayer, .pe-textactions, .pe-toolbar) {
   --pe-font: var(--ed-font);
   --pe-mono: var(--ed-mono);
@@ -447,4 +448,184 @@
   .ed-file-dims {
     display: none;
   }
+}
+
+/* ---------------------------------------------------------------- command palette (Ctrl+K) */
+
+.ed-bar .ed-iconbtn {
+  width: 34px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ps-text-2);
+}
+
+.ed-bar .ed-iconbtn:hover:not(:disabled) {
+  color: var(--ps-text);
+}
+
+/* The palette is portaled to the body, so it names the site font itself. */
+.ed-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, var(--ps-bg) 60%, transparent);
+}
+
+.ed-palette {
+  position: fixed;
+  z-index: 61;
+  top: min(16vh, 128px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(440px, 72dvh);
+  transform: translateX(-50%);
+  overflow: hidden;
+  background: var(--ps-surface);
+  border: 1px solid var(--ps-border);
+  border-radius: var(--ps-radius-lg);
+  box-shadow: var(--ps-shadow-2);
+  color: var(--ps-text);
+  font-family: var(--font-sans, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.ed-palette-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ps-border);
+  color: var(--ps-text-3);
+}
+
+.ed-palette-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ps-text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.ed-palette-input::placeholder {
+  color: var(--ps-text-3);
+}
+
+.ed-palette-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ps-border) transparent;
+}
+
+.ed-palette-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--ps-radius-sm);
+  color: var(--ps-text-2);
+  cursor: pointer;
+}
+
+.ed-palette-option[aria-selected='true'] {
+  background: var(--ps-surface-2);
+  color: var(--ps-text);
+}
+
+.ed-palette-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ed-keys {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.ed-key {
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--ps-border);
+  border-radius: 6px;
+  background: var(--ps-bg);
+  color: var(--ps-text-3);
+  font-family: var(--font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.ed-palette-empty {
+  margin: 0;
+  padding: 20px 16px;
+  color: var(--ps-text-3);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ed-palette {
+    animation: ed-palette-in var(--ps-dur) var(--ps-ease);
+  }
+
+  @keyframes ed-palette-in {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-6px);
+    }
+  }
+}
+
+/* The command palette is a keyboard feature: below the desktop layout (phones, tablets) it stays out of the bar. */
+@media (max-width: 899px) {
+  .ed-bar .ed-iconbtn {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- desktop: a window on the paper */
+
+/* The site's header is a floating pill, so on a wide screen the editor is a rounded window under it rather than
+   an edge-to-edge strip. Phones keep the full-bleed layout, where the bottom sheet needs every pixel. */
+@media (min-width: 900px) {
+  .ed-app[data-state='ready'] {
+    padding: 0 12px 12px;
+    border-bottom: 0;
+  }
+
+  .ed-app[data-state='ready'] .ed-studio {
+    border: 1px solid var(--ps-border);
+    border-radius: var(--ps-radius-lg);
+    overflow: hidden;
+    background: var(--ps-surface);
+    box-shadow: var(--ps-shadow-1);
+  }
+}
+
+/* A link-styled button (Reload page) next to an error message. */
+button.ed-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
 }

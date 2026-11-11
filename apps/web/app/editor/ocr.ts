@@ -6,6 +6,7 @@
  */
 import type { OcrWord } from '@polishot/redact';
 import type { Worker as TesseractWorker } from 'tesseract.js';
+import { loadedAsEditorRoute } from './csp';
 
 export type OcrStage = 'engine' | 'model' | 'read';
 
@@ -16,7 +17,11 @@ export interface OcrProgress {
 }
 
 export class OcrError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** The browser's Content-Security-Policy for this page blocked the engine; a fresh page load fixes it. */
+    readonly blockedByPolicy = false,
+  ) {
     super(message);
     this.name = 'OcrError';
   }
@@ -24,8 +29,11 @@ export class OcrError extends Error {
 
 const OCR_BASE = '/ocr';
 const CORE_FILE = 'tesseract-core-simd-lstm.wasm.js';
-/** The worker is freed after this long without a request: the WebAssembly heap is large. */
-const IDLE_MS = 90_000;
+/**
+ * The worker is freed after this long without a request: its WebAssembly heap is large. Five minutes keeps it
+ * ready through an editing session; the next request after that starts a fresh worker from the browser's cache.
+ */
+const IDLE_MS = 300_000;
 /** Screenshot text is small. Tiny images are enlarged so glyphs are tall enough; huge ones are reduced. */
 const MIN_LONG_SIDE = 1400;
 const MAX_LONG_SIDE = 4000;
@@ -36,6 +44,7 @@ const MIN_CONFIDENCE = 30;
 /** No sign of life for this long means the engine is stuck (a slow connection still reports within this window). */
 const STALL_MS = 120_000;
 const MSG_STALLED = 'Text recognition stopped responding. Reload the page and try again.';
+const MSG_BLOCKED = 'The browser blocked text recognition on this page. Reload the page and try again.';
 
 let workerPromise: Promise<TesseractWorker> | null = null;
 let onProgress: ((p: OcrProgress) => void) | null = null;
@@ -133,6 +142,24 @@ function withWatchdog<T>(work: Promise<T>): Promise<T> {
   });
 }
 
+/**
+ * Starts the engine in the background (worker, WebAssembly core and language model), so the first "Find text" or
+ * Redact click only has to read the image. Safe to call repeatedly. Nothing is reported from here: a failure is
+ * named, with its fix, when recognition is actually asked for. Skipped when the person has asked their browser
+ * to save data.
+ */
+export function warmOcr(): void {
+  if (workerPromise || busy) return;
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  if (connection?.saveData) return;
+  void getWorker().then(
+    () => {
+      if (!busy) scheduleIdle();
+    },
+    () => undefined,
+  );
+}
+
 /** Terminates the worker (if any). Safe to call at any time; the next recognition starts a fresh one. */
 export function disposeOcr(): void {
   clearTimeout(idleTimer);
@@ -226,6 +253,12 @@ export async function recognize(bitmap: ImageBitmap, progress: (p: OcrProgress) 
   busy = true;
   clearTimeout(idleTimer);
   onProgress = progress;
+  // A blocked worker or script is reported on the document; remember it so the failure can be named.
+  let blocked = false;
+  const onViolation = (e: SecurityPolicyViolationEvent) => {
+    if (/^(worker|script|child)-src/.test(e.effectiveDirective)) blocked = true;
+  };
+  document.addEventListener('securitypolicyviolation', onViolation);
   try {
     const scale = ocrScaleFor(bitmap.width, bitmap.height);
     return await withWatchdog(
@@ -242,8 +275,13 @@ export async function recognize(bitmap: ImageBitmap, progress: (p: OcrProgress) 
     workerPromise = null;
     if (p) void p.then((w) => w.terminate()).catch(() => undefined);
     if (err instanceof OcrError) throw err;
+    // Blocked by policy, or loaded as another route's document (whose policy does not allow the engine).
+    if (blocked || (err instanceof DOMException && err.name === 'SecurityError') || loadedAsEditorRoute() === false) {
+      throw new OcrError(MSG_BLOCKED, true);
+    }
     throw new OcrError('Text recognition could not start. Reload the page and try again.');
   } finally {
+    document.removeEventListener('securitypolicyviolation', onViolation);
     busy = false;
     onProgress = null;
     scheduleIdle();

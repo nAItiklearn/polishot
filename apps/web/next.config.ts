@@ -8,7 +8,7 @@ const isDev = process.env.NODE_ENV !== 'production';
  *
  * Everything is same-origin. Two things are loosened on purpose:
  *  - script-src 'unsafe-inline': the pages are statically rendered, so Next's inline flight-data
- *    scripts (and our 6-line theme bootstrap) cannot carry a per-request nonce.
+ *    scripts cannot carry a per-request nonce.
  *  - style-src 'unsafe-inline': React style attributes and the Radix scroll-lock <style> tag.
  * 'unsafe-eval' is only added in development (React refresh needs it). The /editor route also gets
  * 'wasm-unsafe-eval' and blob workers for the in-browser OCR engine; no other page does.
@@ -59,6 +59,12 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        // The text engine, its WebAssembly core and the language model: pinned files that change only with a
+        // package bump. Letting the browser keep them for a month makes every repeat visit start reading at once.
+        source: '/ocr/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=2592000, stale-while-revalidate=86400' }],
+      },
       {
         source: '/editor',
         headers: [

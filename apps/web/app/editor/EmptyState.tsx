@@ -20,13 +20,15 @@ export function EmptyState({ busy, onChoose, onSample, onIntent }: EmptyStatePro
         <span className="ed-empty-icon">
           <ImagePlus size={20} strokeWidth={1.5} aria-hidden="true" />
         </span>
-        <h2 className="ed-empty-title">Drop a screenshot</h2>
+        <h2 className="ed-empty-title display-3">
+          Drop a <em>screenshot</em>
+        </h2>
         <p className="ed-empty-lede">Or paste one with Ctrl+V. PNG, JPEG or WebP, up to 25 MB.</p>
         <div className="ed-empty-actions">
-          <Button type="button" disabled={busy} onClick={onChoose} {...intent}>
+          <Button type="button" className="btn-ember rounded-xl font-semibold" disabled={busy} onClick={onChoose} {...intent}>
             Choose image
           </Button>
-          <Button type="button" variant="outline" disabled={busy} onClick={onSample} {...intent}>
+          <Button type="button" variant="outline" className="rounded-xl" disabled={busy} onClick={onSample} {...intent}>
             Try the sample
           </Button>
         </div>

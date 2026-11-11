@@ -33,6 +33,10 @@ export default function PrivacyPage() {
       <h2>What is stored on your device</h2>
       <ul>
         <li>
+          <strong>Web editor.</strong> The editor on this site keeps your saved looks (style settings only,
+          never images) in your browser&apos;s local storage. Clear them by clearing this site&apos;s data.
+        </li>
+        <li>
           <strong>History.</strong> Captures and their editable settings are saved so you can reopen them.
           On Windows they are in a history folder under <code>%LOCALAPPDATA%\{APP_NAME}</code>. On Android
           they are in the app&apos;s private storage.

@@ -25,6 +25,14 @@ export function OcrStatus({ ocr, className }: { ocr: Ocr; className?: string }) 
     return (
       <p className={`pe-error ${className ?? ''}`} role="alert">
         {ocr.error}
+        {ocr.blocked && (
+          <>
+            {' '}
+            <button type="button" className="ed-link" onClick={() => window.location.reload()}>
+              Reload page
+            </button>
+          </>
+        )}
       </p>
     );
   }
