@@ -3,7 +3,7 @@
 Polished screenshots, private by default. Capture, frame, redact and share a screenshot in about two seconds, on
 your own device. Windows and Android. Website: <https://polishot.cam>
 
-Proprietary software. All rights reserved. This repository is private.
+The source is public so anyone can read, build and report issues. A license has not been chosen yet; until one is added, all rights are reserved.
 
 ## What is in here
 
