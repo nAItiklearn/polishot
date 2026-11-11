@@ -179,10 +179,76 @@ pub struct Frame {
     pub buf: Vec<u8>,
 }
 
+/// Recycles the big buffers of frozen frames. Every hotkey allocates one 33 MB buffer per 4K
+/// monitor; a fresh allocation is zero-filled by faulting in thousands of pages, which costs more
+/// than copying the pixels into it. The buffers of the previous capture are kept for the next.
+pub struct BufferPool {
+    slots: Mutex<Vec<Vec<u8>>>,
+    max_buffers: usize,
+    max_bytes: usize,
+}
+
+/// Smaller buffers are cheap to allocate and not worth keeping.
+const MIN_POOLED_BYTES: usize = 1 << 20;
+
+impl BufferPool {
+    pub const fn new(max_buffers: usize, max_bytes: usize) -> Self {
+        Self {
+            slots: Mutex::new(Vec::new()),
+            max_buffers,
+            max_bytes,
+        }
+    }
+
+    /// A buffer of exactly `len` bytes with unspecified content, if one is kept.
+    pub fn take(&self, len: usize) -> Option<Vec<u8>> {
+        let mut slots = self.slots.lock().ok()?;
+        let at = slots.iter().position(|b| b.len() == len)?;
+        Some(slots.swap_remove(at))
+    }
+
+    /// Keep `buf` for reuse unless the pool is full or the buffer is small.
+    pub fn give(&self, buf: Vec<u8>) {
+        if buf.len() < MIN_POOLED_BYTES {
+            return;
+        }
+        if let Ok(mut slots) = self.slots.lock() {
+            let kept: usize = slots.iter().map(Vec::len).sum();
+            if slots.len() < self.max_buffers && kept + buf.len() <= self.max_bytes {
+                slots.push(buf);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn kept(&self) -> (usize, usize) {
+        let slots = self.slots.lock().unwrap();
+        (slots.len(), slots.iter().map(Vec::len).sum())
+    }
+}
+
+/// Frame buffers of the last capture: two monitors' worth, never more than 80 MB.
+static FRAME_BUFFERS: BufferPool = BufferPool::new(2, 80 << 20);
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        FRAME_BUFFERS.give(std::mem::take(&mut self.buf));
+    }
+}
+
 impl Frame {
     /// Allocate a frame whose pixel area is still zeroed; fill it through [`Frame::pixels_mut`].
     pub fn blank(width: u32, height: u32) -> Self {
-        let mut buf = vec![0u8; bmp::HEADER_LEN + width as usize * height as usize * 4];
+        let mut f = Self::uninit(width, height);
+        f.pixels_mut().fill(0);
+        f
+    }
+
+    /// A frame with a valid header whose pixel area holds *whatever the recycled buffer held*.
+    /// The caller must overwrite every pixel.
+    fn uninit(width: u32, height: u32) -> Self {
+        let len = bmp::HEADER_LEN + width as usize * height as usize * 4;
+        let mut buf = FRAME_BUFFERS.take(len).unwrap_or_else(|| vec![0u8; len]);
         bmp::write_header(&mut buf, width, height);
         Self { width, height, buf }
     }
@@ -191,7 +257,8 @@ impl Frame {
         if bgra.len() != width as usize * height as usize * 4 {
             return Err("Screen grab returned an unexpected buffer size.".to_string());
         }
-        let mut f = Self::blank(width, height);
+        // Every pixel is overwritten right below, so a recycled buffer needs no clearing.
+        let mut f = Self::uninit(width, height);
         f.pixels_mut().copy_from_slice(bgra);
         Ok(f)
     }
@@ -221,6 +288,42 @@ mod tests {
             vec![0; bytes],
             true,
         ))
+    }
+
+    #[test]
+    fn the_pool_reuses_exact_sizes_and_stays_small() {
+        let pool = BufferPool::new(2, 5 << 20);
+        let mb = |n: usize| vec![7u8; n << 20];
+        assert!(pool.take(1 << 20).is_none());
+        pool.give(vec![0u8; 1000]); // too small to keep
+        assert_eq!(pool.kept(), (0, 0));
+        pool.give(mb(2));
+        pool.give(mb(2));
+        pool.give(mb(1)); // a third buffer: over the count limit
+        assert_eq!(pool.kept(), (2, 4 << 20));
+        assert!(pool.take(3 << 20).is_none(), "only exact sizes are reused");
+        let got = pool.take(2 << 20).expect("a 2 MB buffer");
+        assert_eq!(got.len(), 2 << 20);
+        assert_eq!(pool.kept(), (1, 2 << 20));
+        // The byte limit holds too.
+        pool.give(mb(4));
+        assert_eq!(pool.kept(), (1, 2 << 20), "2 + 4 MB would exceed 5 MB");
+    }
+
+    #[test]
+    fn recycled_frame_buffers_never_leak_old_pixels() {
+        // blank() clears; from_bgra() overwrites everything; a stale pixel is never visible.
+        let (w, h) = (700u32, 400u32); // 1.1 MB, large enough to be pooled
+        let pixels = vec![9u8; (w * h * 4) as usize];
+        let a = Frame::from_bgra(w, h, &pixels).unwrap();
+        drop(a); // its buffer goes back to the pool
+        let blank = Frame::blank(w, h);
+        assert!(blank.pixels().iter().all(|&b| b == 0), "blank is zeroed");
+        drop(blank);
+        let other = vec![3u8; (w * h * 4) as usize];
+        let b = Frame::from_bgra(w, h, &other).unwrap();
+        assert!(b.pixels().iter().all(|&p| p == 3));
+        assert_eq!(&b.buf[..2], b"BM", "the header is rewritten");
     }
 
     #[test]

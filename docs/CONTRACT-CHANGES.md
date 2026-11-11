@@ -578,6 +578,20 @@ now calls, so the backend and the mock stay in step.
 - **Shortcut rule** ("Desktop backend review fixes"): the recorder and `validateAccelerator` now require Ctrl or Alt in a
   global shortcut, with the backend's wording ("needs Ctrl or Alt, for example Ctrl+Shift+2"), so Shift-only and
   Windows-key-only shortcuts are refused before they are sent.
+- **`preview_ready({ id })`** (the backend's contract is in its own section below): the preview calls it once the editor holds the capture and
+  its first frame is drawn, and also when a load fails (so a window that waits to be told shows the error). It is sent from
+  an effect after React commits the ready state, not from `requestAnimationFrame`, which does not run while the window is
+  hidden. Until the command exists the call is rejected and ignored. It is also sent when a history item or a file is
+  opened, where the window is already visible; the backend should treat that as a no-op.
+- **In-app capture** hides the window and waits for the page to report hidden (`visibilitychange`) plus a 60 ms
+  compositor beat, instead of sleeping 220 ms; 400 ms is the safety net if the event never comes.
+- **Copy image preparation** no longer starts while the user is working: it waits for 1.2 s without pointer, key or wheel
+  activity, never starts with a button held or `navigator.scheduling.isInputPending()` true, and then runs in an idle
+  callback. Copy still renders on demand when the user is faster than that. (A render the editor could abort, or an
+  `isPrepared()`, would let this go further; the code has one place to adopt it, `get()` in `useCopyPrewarm.ts`.)
+- **Type**: Cormorant Garamond (display) and Instrument Sans (interface), Latin variable files from
+  `@fontsource-variable/*`, bundled into the app (`font-display: block`, and the first paint waits up to 500 ms for them),
+  so nothing is drawn in a stand-in and swapped.
 - **Mock backend** (`?mock=1`, dev only) gained `qs=none|one|two|offline`, `qsdelay`, `qsfail`, `batch=N`, `ocr=none|many`, and
   `window.__polishotMock.qs` helpers to play the phone's side. It is not part of a production build.
 
@@ -664,3 +678,78 @@ false })` abandons a waiting pairing.
   cannot be read is reported through `app_info().warnings` and keeps the last known status instead of reading as "no key".
 - Capture finishing and OCR run on two small fixed worker pools (OCR at below-normal priority) instead of one thread
   per capture; `ocr_recognize` gives up after 30 s with a readable error.
+
+## Desktop speed pass (hotkey to overlay, copy, preview hand-off, GIF), additive
+
+Owner priority: a fast app with no glitches. One new command, two new events and a few fields; nothing is removed.
+
+### New command `preview_ready({ id })` (preview window) - the UI needs to call it
+
+The backend now keeps the overlay's frozen frame on screen after a selection until the preview window has the new
+image ready, then shows the preview and removes the overlay. That removes the empty card the preview showed for
+150 to 400 ms while the image decoded.
+
+- **UI contract:** after `capture:ready` `{ id }`, call `invoke('preview_ready', { id })` as soon as the editor has
+  loaded that capture and the image is decoded and drawn (after `editor.load` resolves and the image `decode()`
+  has finished). **Do not wait for `requestAnimationFrame`**: a hidden webview may not run it, which would only
+  make the backend wait out its timeout. Call it for every `capture:ready`, also when the window is already
+  visible. It is cheap and idempotent; an unknown or stale id is ignored.
+- **Backend:** `capture:ready` is emitted first; if the UI has ever called `preview_ready`, the preview window is
+  shown only after the matching call or after 400 ms, whichever comes first. A UI that never calls it gets the old
+  behaviour (window shown right after the event), so this is safe to ship before the UI is updated: the very
+  first capture of a run behaves as before, and later ones wait for the acknowledgement once it has been seen.
+  Applies to region, window and scrolling captures (not to `afterCapture: 'copy'`).
+- **Capability:** `allow-preview-ready` is granted to the `preview` window only.
+
+### New event `capture:arming` (to the preview, no payload)
+
+Sent the moment a capture hotkey is accepted, about a second before `capture:ready`. The UI may ignore it or use it
+to warm up (instantiate the editor, touch the canvas), which also wakes a throttled hidden webview.
+
+### Overlay protocol (overlay windows only; the preview does not see these)
+
+- `overlay:arm` is now emitted **before** the screen is grabbed and carries `monitor` (the overlay's monitor index).
+  The overlay requests `/frame/<monitor>?v=<nonce>` immediately; the protocol handler answers when the grab has
+  finished (up to 5 s) and rejects a `v` that is not the current session. `overlay_ready` therefore means "armed and
+  painted", and the window is shown at that point with the dim layer, hint and crosshair; the frozen screen is drawn
+  into a canvas when it arrives (it is no longer an `<img>`).
+- The window list is enumerated after the overlay opens when the capture starts in region mode. `overlay_info()`
+  has a new `windowsReady: boolean`, and `overlay:windows { nonce, windows }` delivers the list per overlay when it
+  is ready. A commit made before the frame or window list exists waits for it.
+- The frame BMP's header is now 68 bytes (two zero bytes after the channel masks), so the pixels start on a 4-byte
+  boundary and the overlay reads them as 32-bit words without copying. `bfOffBits` says 68; `<img>` and every BMP
+  decoder are unaffected. This applies to `/frame/<n>` and to `/capture/<id>` while it is served as BMP.
+- The overlay decodes the BMP itself (header check, BGRX to RGBA a word at a time, `putImageData`) instead of the
+  browser's BMP decoder (about 400 ms at 4K), with `createImageBitmap` as the fallback for any other format.
+
+### `copy_image` returns after the PNG is on the clipboard
+
+For a PNG body the backend checks the header and size limits, puts the PNG on the clipboard and returns (a few
+milliseconds). CF_DIBV5 is added a moment later from a background thread, but only if nothing else has been copied
+meanwhile (clipboard sequence number). CF_DIB is skipped for opaque images (Windows synthesises it from CF_DIBV5)
+and kept, flattened on white, for transparent ones. A corrupt PNG is therefore no longer reported by this command
+(the bitmap phase is skipped and logged); the editor produced it, and apps that read the PNG format see exactly the
+bytes sent. The bitmaps are built straight into global memory by a word-at-a-time channel swap on up to 4 threads.
+Measured at 3786x2566 (release build, this laptop; `cargo test --release -p polishot-desktop-core -- --ignored
+clipboard_build_times --nocapture`): CF_DIBV5 52.8 ms before, 19.1 ms on one thread and 6.6 ms on four; CF_DIB
+113.7 ms before, 9.3 ms now (and none at all for opaque images); the PNG decode (21 ms here) is off the critical path.
+Together with the two-phase write the "Copied" toast no longer waits for any of them.
+
+### GIF recording
+
+`polishot-media`'s `GifEncoder` scales and maps frames to palette entries on up to 4 threads and compresses frame N
+on another thread while frame N+1 is prepared. The output is byte-for-byte what a single thread writes
+(`GifEncoder::with_threads(writer, opts, 1)` is the old behaviour; `new` picks the thread count). Measured on the
+synthetic stress recording in the crate's perf test (1920x1080 scaled to 800 wide, every frame different, 12-core
+laptop): 44.9 ms per frame before, 22.5 ms after (1.5x to 3.0x real time at 15 fps). The recorder shares catch-up
+duplicate frames through an `Arc` instead of copying them.
+
+### Smaller changes
+
+- Release profile: `lto = "fat"`, `codegen-units = 1`, and `panic = "unwind"` (it was `abort`). Unwinding lets the
+  worker pool, the recording guard and the single-flight guards actually recover from a panic in one background job
+  instead of the whole tray app exiting.
+- Frozen-frame buffers (33 MB per 4K monitor) are recycled between captures (two buffers, at most 80 MB).
+- Not done: handing the frame to the webview through WebView2 shared buffers (`PostSharedBufferToScript`), which
+  would save one 33 MB copy. It needs the controller COM interface and a minimum WebView2 runtime, and cannot be
+  verified without a real run.

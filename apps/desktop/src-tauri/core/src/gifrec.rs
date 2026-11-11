@@ -3,6 +3,7 @@
 
 use std::io::Write;
 use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use polishot_media::{Frame as MediaFrame, GifEncoder, GifOptions};
@@ -80,7 +81,7 @@ where
     let fps = cfg.fps.clamp(1, 30);
     let max_ticks = (cfg.max_secs * f64::from(fps)).floor().max(1.0) as u64;
 
-    let (tx, rx) = sync_channel::<MediaFrame>(CHANNEL_CAPACITY);
+    let (tx, rx) = sync_channel::<Arc<MediaFrame>>(CHANNEL_CAPACITY);
     let opts = GifOptions {
         fps,
         max_width: cfg.max_width,
@@ -122,18 +123,13 @@ where
             Err(_) => break RecordEnd::GrabFailed,
         };
         // A stall (slow grab or encoder) owes several ticks: repeat this frame to keep the
-        // recording's timeline true. Identical frames cost almost nothing in the GIF. Only the
-        // extra repeats are copies; the last one moves the grabbed frame itself.
+        // recording's timeline true. Identical frames cost almost nothing in the GIF. The repeats
+        // share one allocation (an 8 MB frame is not copied per tick).
         let n = due.min(MAX_CATCH_UP_TICKS).min(max_ticks - sent);
-        let mut frame = Some(frame);
+        let frame = Arc::new(frame);
         let mut encoder_died = false;
-        for i in 0..n {
-            let next = if i + 1 == n {
-                frame.take()
-            } else {
-                frame.clone()
-            };
-            if next.is_none_or(|f| tx.send(f).is_err()) {
+        for _ in 0..n {
+            if tx.send(Arc::clone(&frame)).is_err() {
                 encoder_died = true;
                 break;
             }

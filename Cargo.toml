@@ -3,8 +3,13 @@ resolver = "2"
 members = ["apps/desktop/src-tauri", "crates/polishot-license", "crates/polishot-media", "crates/polishot-quicksend"]
 
 [profile.release]
-lto = "thin"
-codegen-units = 16
+# Speed over build time and file size: one codegen unit and full LTO let the pixel loops (clipboard
+# bitmaps, BMP swizzle, GIF scaling and palette mapping) inline and vectorise across crates.
+lto = "fat"
+codegen-units = 1
 opt-level = 3
 strip = true
-panic = "abort"
+# Unwinding, not abort: the tray app must survive a panic in one background job (OCR, a clipboard
+# bitmap, a recording thread). The worker pool, the recording guard and the single-flight guards
+# are written to recover from panics, which only works when panics unwind.
+panic = "unwind"

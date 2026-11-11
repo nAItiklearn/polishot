@@ -46,6 +46,9 @@ interface MockLast {
   revealed?: string;
   windowCalls: string[];
   captureStarts: string[];
+  /** performance.now() of the last window hide and of the capture_start that followed it. */
+  hideAt?: number;
+  captureStartAt?: number;
   historySaves: Array<{ id: string; bytes: number }>;
   /** Every path export_save returned, in order (batch runs write several). */
   savedPaths: string[];
@@ -56,6 +59,8 @@ interface MockLast {
   pairAnswers: boolean[];
   /** The device and code each qs_pair_confirm named. */
   pairConfirmArgs: Array<{ peerId: string; sas: string }>;
+  /** Each preview_ready call, with the image the editor held when it arrived. */
+  previewReady: Array<{ id: string; editorHasImage: boolean; editorImageId: string }>;
 }
 
 interface MockApi {
@@ -168,9 +173,15 @@ function licenseFor(kind: string): LicenseStatus {
   }
 }
 
+/** Emulates the window being hidden or shown: the page's visibility state and its event. */
+function setPageVisible(visible: boolean): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (visible ? 'visible' : 'hidden') });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 export async function installMock(): Promise<void> {
   const q = params();
-  const last: MockLast = { windowCalls: [], captureStarts: [], historySaves: [], savedPaths: [], sent: [], forgotten: [], incomingAnswers: [], pairingMode: false, pairAnswers: [], pairConfirmArgs: [] };
+  const last: MockLast = { windowCalls: [], captureStarts: [], historySaves: [], savedPaths: [], sent: [], forgotten: [], incomingAnswers: [], pairingMode: false, pairAnswers: [], pairConfirmArgs: [], previewReady: [] };
   const listeners = new Map<string, Set<(p: unknown) => void>>();
   const emit = (event: string, payload?: unknown) => listeners.get(event)?.forEach((cb) => cb(payload));
 
@@ -245,6 +256,7 @@ export async function installMock(): Promise<void> {
     const meta = newMeta(source);
     history.unshift({ id: meta.id, createdAt: meta.createdAt, width: meta.width, height: meta.height, excerpt: '', hasDoc: false, docJson: null });
     thumbUrls.set(meta.id, sampleUrl);
+    setPageVisible(true); // a capture brings the window back
     emit('capture:ready', meta);
     // Recognition finishes a little after the image, as on the real backend.
     setTimeout(() => emit('ocr:ready', { id: meta.id, words: mockWords }), 380);
@@ -358,6 +370,7 @@ export async function installMock(): Promise<void> {
         return null;
       case 'capture_start':
         last.captureStarts.push(String(a.mode));
+        last.captureStartAt = performance.now();
         if (a.mode === 'gif') {
           const name = 'Recording 2026-11-11 09.30.12.gif';
           setTimeout(() => emit('gif:saved', { path: `${settings.saveFolder}\\${name}`, name, bytes: 2_400_000 }), 450);
@@ -371,6 +384,11 @@ export async function installMock(): Promise<void> {
       case 'plugin:opener|reveal_item_in_dir':
         last.revealed = String((a.paths as string[])?.[0] ?? '');
         return null;
+      case 'preview_ready': {
+        const ed = (window as unknown as { __polishotApp?: { editor?: { hasImage: boolean; doc: { image: { id: string } } } } }).__polishotApp?.editor;
+        last.previewReady.push({ id: String(a.id), editorHasImage: ed?.hasImage === true, editorImageId: ed?.doc.image.id ?? '' });
+        return null;
+      }
       case 'reveal_in_folder':
         last.revealed = String(a.path ?? '');
         return null;
@@ -456,7 +474,12 @@ export async function installMock(): Promise<void> {
   const native: NativeApi = {
     minimize: async () => void last.windowCalls.push('minimize'),
     toggleMaximize: async () => void last.windowCalls.push('toggleMaximize'),
-    hide: async () => void last.windowCalls.push('hide'),
+    hide: async () => {
+      last.windowCalls.push('hide');
+      last.hideAt = performance.now();
+      // Like the webview: the page reports hidden a frame later, and visible again when the window is shown.
+      setTimeout(() => setPageVisible(false), 16);
+    },
     isMaximized: async () => false,
     onResized: async () => () => undefined,
     pickImage: async () => 'C:\\Users\\you\\Pictures\\screenshot.png',
@@ -500,6 +523,7 @@ export async function installMock(): Promise<void> {
         emit('qs:incoming', { requestId, peerName: 'Pixel 8', name: 'screenshot.png', mime: 'image/png', size: 1_300_000 }),
       receive: () => {
         const meta = emitless(newMeta('file'));
+        setPageVisible(true);
         emit('qs:received', { meta, peerName: 'Pixel 8' });
         return meta;
       },

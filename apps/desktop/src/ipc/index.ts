@@ -44,6 +44,8 @@ export interface OverlayInfo {
   /** Monitor rectangle in physical virtual-desktop pixels (x/y may be negative). */
   bounds: Box;
   windows: WindowInfo[];
+  /** False while the window list is still being enumerated; it arrives later as `overlay:windows`. */
+  windowsReady: boolean;
   /** Nonce and mode of the active capture session (lets a late-loading overlay catch up). */
   nonce: number;
   mode: CaptureMode;
@@ -101,6 +103,8 @@ export interface AppInfo {
 export type CapturePurpose = 'capture' | 'scroll' | 'gif';
 
 export interface ArmPayload {
+  /** The monitor this overlay covers, so `/frame/<monitor>` can be requested before `overlay_info` returns. */
+  monitor?: number;
   nonce: number;
   mode: CaptureMode;
   purpose: CapturePurpose;
@@ -166,6 +170,8 @@ export const events = {
     listen<NavigateTarget>('navigate', (e) => cb(e.payload)),
   onOverlayArm: (cb: (p: ArmPayload) => void): Promise<UnlistenFn> =>
     listen<ArmPayload>('overlay:arm', (e) => cb(e.payload)),
+  onOverlayWindows: (cb: (p: { nonce: number; windows: WindowInfo[] }) => void): Promise<UnlistenFn> =>
+    listen<{ nonce: number; windows: WindowInfo[] }>('overlay:windows', (e) => cb(e.payload)),
   onOverlayMode: (cb: (mode: CaptureMode) => void): Promise<UnlistenFn> =>
     listen<CaptureMode>('overlay:mode', (e) => cb(e.payload)),
   onStatusTick: (cb: (t: { elapsedMs: number; maxMs: number }) => void): Promise<UnlistenFn> =>

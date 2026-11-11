@@ -80,6 +80,16 @@ pub fn capture_cancel(app: AppHandle) {
     capture::cancel(&app);
 }
 
+/// The preview window has the capture `id` decoded and drawn. While a capture is being committed
+/// the frozen overlay stays on screen until this arrives (or 400 ms pass), so the preview never
+/// appears empty. Cheap and idempotent; unknown or stale ids are ignored.
+#[tauri::command]
+pub fn preview_ready(app: AppHandle, id: String) -> CmdResult<()> {
+    validate_id(&id)?;
+    state(&app).preview_gate.ack(&id);
+    Ok(())
+}
+
 /// What `capture_start` can begin: the two contract modes plus the two recording flows.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -184,13 +194,21 @@ pub async fn export_save(app: AppHandle, request: Request<'_>) -> CmdResult<Stri
 pub async fn copy_image(app: AppHandle, request: Request<'_>) -> CmdResult<()> {
     let bytes = raw_body(&request, imgio::MAX_FILE_BYTES as usize)?;
     blocking(move || {
-        let decoded = imgio::decode_limited(&bytes)?;
-        let png = if crate::ids::content_matches_ext(&bytes, "png") {
-            bytes
+        let hwnd = preview_hwnd(&app)?;
+        if crate::ids::content_matches_ext(&bytes, "png") {
+            // The usual case (the editor exports PNG): check the header only, put the PNG on the
+            // clipboard now, and let a background thread decode it and add the bitmap formats.
+            // A full decode used to sit in front of the "Copied" toast (about 60 ms at 4K).
+            let (w, h) = imgio::probe_dimensions(&bytes)?;
+            imgio::check_dimensions(w, h)?;
+            clipboard::copy_png_fast(hwnd, bytes, None)
         } else {
-            imgio::encode_png_fast(decoded.width, decoded.height, &decoded.rgba)?
-        };
-        clipboard::set_image(preview_hwnd(&app)?, &png, &decoded)
+            // Another format: convert once, then the same two phases (the decoded pixels are
+            // already in hand, so the background thread has nothing left to decode).
+            let decoded = imgio::decode_limited(&bytes)?;
+            let png = imgio::encode_png_fast(decoded.width, decoded.height, &decoded.rgba)?;
+            clipboard::copy_png_fast(hwnd, png, Some(decoded))
+        }
     })
     .await
 }

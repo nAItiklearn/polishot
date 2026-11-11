@@ -234,8 +234,7 @@ fn run_scroll(
         Source::Scroll,
     );
     // Event first, window second: the preview must not flash the previous capture.
-    let _ = app.emit_to(winmgr::PREVIEW, "capture:ready", &meta);
-    winmgr::show_preview(app);
+    winmgr::announce_capture(app, &meta, true);
     if matches!(out.reason, StopReason::StitchFailed) {
         // The image is still delivered; say why it may end early.
         show_toast(

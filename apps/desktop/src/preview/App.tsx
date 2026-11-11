@@ -22,7 +22,7 @@ import {
   type ActionId,
   type PaletteItem,
 } from './lib/commands';
-import { basename, exportFilename, formatFromFilename, joinPath, middleEllipsis, sleep } from './lib/format';
+import { basename, exportFilename, formatFromFilename, joinPath, middleEllipsis } from './lib/format';
 import { isImagePath } from './lib/batch';
 import { oversizeMessage, resolveSendTarget } from './lib/quicksend';
 import { formatAccelerator, matchesShortcut } from './lib/shortcuts';
@@ -43,7 +43,7 @@ import {
   type HistoryItem,
   type ThemeSetting,
 } from '../shared/ipc';
-import { IMAGE_EXTENSIONS, native } from '../shared/native';
+import { IMAGE_EXTENSIONS, hideAndSettle, native } from '../shared/native';
 
 const TOOL_ACTIONS = buildToolActions(
   TOOL_ORDER,
@@ -479,9 +479,9 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
   const startCapture = useCallback(
     async (mode: CaptureMode) => {
       await flush();
-      // The window must be gone before the screen is frozen, or it would be in the picture.
-      await native.hide().catch(() => undefined);
-      await sleep(220);
+      // The window must be gone before the screen is frozen, or it would be in the picture: wait for it to report
+      // hidden (plus a compositor beat) instead of sleeping for a fixed 220 ms.
+      await hideAndSettle();
       try {
         await ipc.captureStart(mode);
       } catch (e) {

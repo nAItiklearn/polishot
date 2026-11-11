@@ -25,7 +25,24 @@ pub(crate) fn target_size(w: u32, h: u32, max_width: u32) -> (u32, u32) {
 /// Downscales an RGBA8 image to `out_w` x `out_h` (both `<=` the source size) and returns opaque
 /// RGBA8 (alpha forced to 255). When the size is unchanged the pixels are copied with alpha forced
 /// opaque. Inputs must already be validated: `src.len() == w * h * 4`.
+#[cfg(test)]
 pub(crate) fn downscale_box(src: &[u8], w: usize, h: usize, out_w: usize, out_h: usize) -> Vec<u8> {
+    downscale_box_threads(src, w, h, out_w, out_h, 1)
+}
+
+/// Frames at least this large (in output pixels) are scaled by several threads at once.
+const PAR_MIN_OUT_PIXELS: usize = 1 << 16;
+
+/// [`downscale_box`] with the output rows split into bands on up to `threads` threads. Every
+/// output row depends only on the source, so the result is identical for any thread count.
+pub(crate) fn downscale_box_threads(
+    src: &[u8],
+    w: usize,
+    h: usize,
+    out_w: usize,
+    out_h: usize,
+    threads: usize,
+) -> Vec<u8> {
     let mut out = vec![255u8; out_w * out_h * 4];
     if out_w == w && out_h == h {
         for (d, s) in out.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
@@ -34,21 +51,69 @@ pub(crate) fn downscale_box(src: &[u8], w: usize, h: usize, out_w: usize, out_h:
         return out;
     }
 
-    let x_scale = w as f64 / out_w as f64;
     let y_scale = h as f64 / out_h as f64;
-    let cols: Vec<(usize, Vec<u32>)> = (0..out_w)
-        .map(|ox| axis_weights(ox, x_scale, w, WEIGHT_ONE))
-        .collect();
     // Up to 16:1 vertically the weights fit in 8 bits, which lets the (dominant) vertical pass run
     // in 16-bit lanes; beyond that 12-bit weights keep the rounding error small.
     let narrow = y_scale <= 16.0;
-    let y_one = if narrow { 256 } else { WEIGHT_ONE };
+    let plan = Plan {
+        src,
+        w,
+        h,
+        out_w,
+        y_scale,
+        narrow,
+        y_one: if narrow { 256 } else { WEIGHT_ONE },
+        cols: (0..out_w)
+            .map(|ox| axis_weights(ox, w as f64 / out_w as f64, w, WEIGHT_ONE))
+            .collect(),
+    };
 
+    let threads = threads.clamp(1, 16).min(out_h);
+    if threads == 1 || out_w * out_h < PAR_MIN_OUT_PIXELS {
+        scale_band(&plan, 0, &mut out);
+        return out;
+    }
+    let band_rows = out_h.div_ceil(threads);
+    std::thread::scope(|scope| {
+        for (band, rows) in out.chunks_mut(band_rows * out_w * 4).enumerate() {
+            let plan = &plan;
+            scope.spawn(move || scale_band(plan, band * band_rows, rows));
+        }
+    });
+    out
+}
+
+/// Everything the row bands share.
+struct Plan<'a> {
+    src: &'a [u8],
+    w: usize,
+    h: usize,
+    out_w: usize,
+    y_scale: f64,
+    narrow: bool,
+    y_one: u32,
+    cols: Vec<(usize, Vec<u32>)>,
+}
+
+/// Fill the output rows `first_row..` held in `band`.
+fn scale_band(plan: &Plan<'_>, first_row: usize, band: &mut [u8]) {
+    let Plan {
+        src,
+        w,
+        h,
+        out_w,
+        y_scale,
+        narrow,
+        y_one,
+        cols,
+    } = plan;
+    let (w, h, out_w, narrow) = (*w, *h, *out_w, *narrow);
     // Vertical accumulation row (4 lanes per source column), reused for every output row.
     let mut acc = vec![0u32; w * 4];
     let mut acc16 = vec![0u16; if narrow { w * 4 } else { 0 }];
-    for (oy, out_row) in out.chunks_exact_mut(out_w * 4).enumerate() {
-        let (y0, y_weights) = axis_weights(oy, y_scale, h, y_one);
+    for (j, out_row) in band.chunks_exact_mut(out_w * 4).enumerate() {
+        let oy = first_row + j;
+        let (y0, y_weights) = axis_weights(oy, *y_scale, h, *y_one);
         if narrow {
             acc16.fill(0);
             for (k, &weight) in y_weights.iter().enumerate() {
@@ -72,7 +137,7 @@ pub(crate) fn downscale_box(src: &[u8], w: usize, h: usize, out_w: usize, out_h:
                 }
             }
         }
-        for (dst, (x0, x_weights)) in out_row.chunks_exact_mut(4).zip(&cols) {
+        for (dst, (x0, x_weights)) in out_row.chunks_exact_mut(4).zip(cols) {
             let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
             let taps = &acc[x0 * 4..(x0 + x_weights.len()) * 4];
             for (px, &wx) in taps.chunks_exact(4).zip(x_weights) {
@@ -87,7 +152,6 @@ pub(crate) fn downscale_box(src: &[u8], w: usize, h: usize, out_w: usize, out_h:
             dst[2] = ((b + ROUND) >> SHIFT) as u8;
         }
     }
-    out
 }
 
 /// For output index `o` on an axis scaled by `scale = in_len / out_len`, returns the first source
@@ -167,6 +231,34 @@ mod tests {
         let out = downscale_box(&src, w, h, 11, 9);
         assert_eq!(out.len(), 11 * 9 * 4);
         assert!(out.chunks_exact(4).all(|px| px == [200, 100, 50, 255]));
+    }
+
+    #[test]
+    fn any_thread_count_gives_the_same_pixels() {
+        // Non-integer ratios in both directions, large enough to take the threaded path.
+        let (w, h) = (1280usize, 720usize);
+        let mut x = 0x1234_5678u32;
+        let src: Vec<u8> = (0..w * h * 4)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                (x >> 8) as u8
+            })
+            .collect();
+        let (out_w, out_h) = (421usize, 237usize);
+        assert!(out_w * out_h >= PAR_MIN_OUT_PIXELS);
+        let one = downscale_box_threads(&src, w, h, out_w, out_h, 1);
+        for threads in [2usize, 3, 4, 7, 64] {
+            assert_eq!(
+                downscale_box_threads(&src, w, h, out_w, out_h, threads),
+                one,
+                "{threads} threads"
+            );
+        }
+        // The wide-ratio (12-bit weight) path too.
+        let one = downscale_box_threads(&src, w, h, 60, 45, 1);
+        assert_eq!(downscale_box_threads(&src, w, h, 60, 45, 4), one);
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub mod ocr;
 pub mod opener;
 pub mod paths;
 pub mod pinmath;
+pub mod pixels;
 pub mod qsengine;
 pub mod qspeers;
 pub mod qsstore;

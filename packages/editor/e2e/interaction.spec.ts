@@ -236,6 +236,50 @@ test.describe('interaction quality bar', () => {
     }
   });
 
+  test('one slider gesture is exactly one undo step, however slow the frames are', async ({ page }) => {
+    // The history has no timing in it (a gesture is the span between pointer-down and pointer-up), so the number of
+    // undo steps must not depend on how long the frames take. This runs the same drag with the CPU
+    // throttled 6x, with long pauses between moves, and with the button released away from the slider.
+    test.setTimeout(180_000);
+    await open(page);
+    const cdp = await page.context().newCDPSession(page);
+    const cases = [
+      { rate: 1, pause: 8, away: false, label: 'Padding', key: 'padding', max: 0.3 },
+      { rate: 6, pause: 8, away: false, label: 'Padding', key: 'padding', max: 0.3 },
+      { rate: 6, pause: 120, away: false, label: 'Corners', key: 'radius', max: 48 },
+      { rate: 4, pause: 40, away: true, label: 'Shadow', key: 'shadow', max: 1 },
+    ] as const;
+    for (const c of cases) {
+      const name = JSON.stringify(c);
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      await page.evaluate(() => window.__polishot!.loadSampleBitmap(1));
+      const slider = page.getByLabel(c.label);
+      const box = (await slider.boundingBox())!;
+      const start = ((await getDoc(page)) as unknown as Record<string, number>)[c.key]!;
+      expect(await canUndo(page), name).toBe(false);
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: c.rate });
+      await page.mouse.move(box.x + box.width * (start / c.max), box.y + box.height / 2);
+      await page.mouse.down();
+      let lastX = box.x;
+      for (let i = 0; i < 12; i++) {
+        const f = 0.1 + 0.7 * (i / 11) + 0.05 * Math.sin(i * 1.7); // a wobbling sweep that ends well away from the start
+        lastX = box.x + box.width * f;
+        await page.mouse.move(lastX, box.y + box.height / 2);
+        await page.waitForTimeout(c.pause);
+      }
+      if (c.away) await page.mouse.move(lastX, box.y - 150); // the pointer leaves the slider vertically, then is released
+      await page.mouse.up();
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      const end = ((await getDoc(page)) as unknown as Record<string, number>)[c.key]!;
+      expect(end, name).not.toBeCloseTo(start, 3);
+      await page.keyboard.press('Control+z');
+      expect(((await getDoc(page)) as unknown as Record<string, number>)[c.key], name).toBeCloseTo(start, 6);
+      expect(await canUndo(page), name).toBe(false);
+      await page.keyboard.press('Control+Shift+z');
+      expect(((await getDoc(page)) as unknown as Record<string, number>)[c.key], name).toBeCloseTo(end, 6);
+    }
+  });
+
   test('arrow keys on a slider do not nudge the selected shape', async ({ page }) => {
     await open(page);
     await focusCanvas(page);

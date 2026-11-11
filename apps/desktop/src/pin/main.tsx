@@ -78,7 +78,7 @@ function Pin() {
       />
       <div
         className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-[rgb(28_25_21/0.8)] py-1 pr-1 pl-3 text-[11px] font-medium text-[#f4efe6] shadow-[0_4px_14px_rgb(40_28_14/0.3)] backdrop-blur transition-opacity duration-150"
-        style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none', fontFamily: "'Geist Sans','Segoe UI Variable Text','Segoe UI',system-ui,sans-serif" }}
+        style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none', fontFamily: "'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif" }}
         role="group"
         aria-label="Pin controls"
       >

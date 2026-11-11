@@ -28,6 +28,7 @@ import {
   windowRectToCss,
   type Point,
 } from './geometry';
+import { loadFrame } from './frame';
 import './overlay.css';
 
 const LOUPE_GRID = 16; // physical pixels sampled per side
@@ -44,13 +45,15 @@ interface Live {
   hover: WindowInfo | null;
   busy: boolean;
   focusRequested: boolean;
+  /** The frozen screen has been drawn into the canvas (the overlay opens before that). */
+  frameReady: boolean;
   raf: number | null;
 }
 
 const errorMessage = (e: unknown): string => (typeof e === 'string' ? e : 'Capture failed.');
 
 export function Overlay() {
-  const frameRef = useRef<HTMLImageElement>(null);
+  const frameRef = useRef<HTMLCanvasElement>(null);
   const hLineRef = useRef<HTMLDivElement>(null);
   const vLineRef = useRef<HTMLDivElement>(null);
   const dimRef = useRef<HTMLDivElement>(null);
@@ -72,6 +75,7 @@ export function Overlay() {
     hover: null,
     busy: false,
     focusRequested: false,
+    frameReady: false,
     raf: null,
   });
 
@@ -88,8 +92,8 @@ export function Overlay() {
     const st = live.current;
     st.raf = null;
     const info = st.info;
-    const img = frameRef.current;
-    if (!info || !img) return;
+    const frame = frameRef.current;
+    if (!info || !frame) return;
     const c = st.cursor;
     const scale = info.scale;
     const vw = window.innerWidth;
@@ -111,7 +115,7 @@ export function Overlay() {
     let label = '';
     if (st.mode === 'region' && st.dragging && st.anchor && c) {
       sel = normalizeRect(st.anchor, c);
-      const p = cssRectToPhysical(sel, scale, img.naturalWidth, img.naturalHeight);
+      const p = cssRectToPhysical(sel, scale, info.bounds.w, info.bounds.h);
       label = formatSize(p.w, p.h);
     } else if (st.mode === 'window' && st.hover) {
       sel = windowRectToCss(st.hover.rect, info.bounds, scale);
@@ -165,12 +169,12 @@ export function Overlay() {
     const lp = loupeRef.current;
     const canvas = loupeCanvasRef.current;
     if (lp && canvas) {
-      if (c && st.mode === 'region' && img.naturalWidth > 0) {
+      if (c && st.mode === 'region' && st.frameReady && frame.width > 0) {
         lp.style.display = 'block';
         const pos = placeNear(c, { w: LOUPE_CSS, h: LOUPE_CSS + 24 }, { w: vw, h: vh }, 24);
         lp.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
-        const px = Math.min(Math.max(Math.floor(c.x * scale), 0), img.naturalWidth - 1);
-        const py = Math.min(Math.max(Math.floor(c.y * scale), 0), img.naturalHeight - 1);
+        const px = Math.min(Math.max(Math.floor(c.x * scale), 0), frame.width - 1);
+        const py = Math.min(Math.max(Math.floor(c.y * scale), 0), frame.height - 1);
         const dpr = window.devicePixelRatio || 1;
         const side = Math.round(LOUPE_CSS * dpr);
         if (canvas.width !== side) {
@@ -181,8 +185,9 @@ export function Overlay() {
         if (ctx) {
           ctx.imageSmoothingEnabled = false;
           ctx.clearRect(0, 0, side, side);
-          const s = loupeSample({ x: px, y: py }, LOUPE_GRID, side, img.naturalWidth, img.naturalHeight);
-          if (s) ctx.drawImage(img, s.sx, s.sy, s.sw, s.sh, s.dx, s.dy, s.dw, s.dh);
+          const s = loupeSample({ x: px, y: py }, LOUPE_GRID, side, frame.width, frame.height);
+          // The frozen screen is already a canvas: sample it directly, no second copy.
+          if (s) ctx.drawImage(frame, s.sx, s.sy, s.sw, s.sh, s.dx, s.dy, s.dw, s.dh);
           // Highlight the centre cell.
           const cell = side / LOUPE_GRID;
           const mid = Math.floor(LOUPE_GRID / 2) * cell;
@@ -216,9 +221,10 @@ export function Overlay() {
     async (rectCss: Box) => {
       const st = live.current;
       const info = st.info;
-      const img = frameRef.current;
-      if (!info || !img || st.busy) return;
-      const rect = cssRectToPhysical(rectCss, info.scale, img.naturalWidth, img.naturalHeight);
+      if (!info || st.busy) return;
+      // The monitor size from the backend, not the image: a drag can finish before the frozen
+      // screen has been drawn.
+      const rect = cssRectToPhysical(rectCss, info.scale, info.bounds.w, info.bounds.h);
       if (rect.w < 1 || rect.h < 1) return;
       st.busy = true;
       try {
@@ -279,10 +285,7 @@ export function Overlay() {
       return;
     }
     // Nothing selected: Enter captures the whole monitor.
-    const img = frameRef.current;
-    if (img) {
-      void commitRegion({ x: 0, y: 0, w: img.naturalWidth / info.scale, h: img.naturalHeight / info.scale });
-    }
+    void commitRegion({ x: 0, y: 0, w: info.bounds.w / info.scale, h: info.bounds.h / info.scale });
   }, [commitRegion, commitWindow]);
 
   // ---- arming from Rust ---------------------------------------------------------------------
@@ -299,22 +302,31 @@ export function Overlay() {
       st.hover = null;
       st.busy = false;
       st.focusRequested = false;
+      st.frameReady = false;
       setMode(payload.mode);
       setPurpose(payload.purpose);
       setArmCount((n) => n + 1);
       setDragging(false);
       setError(null);
+
+      const canvas = frameRef.current;
+      // Last capture's pixels must never show through.
+      if (canvas) canvas.style.visibility = 'hidden';
+      // Ask for the frozen screen right now: the backend is usually still grabbing it and answers
+      // as soon as it is ready, so the transfer overlaps everything below. A frame that fails to
+      // arrive is reported but is not fatal (the backend still has its own copy to crop from).
+      const monitor = payload.monitor;
+      const framePromise =
+        canvas && monitor !== undefined
+          ? loadFrame(frameUrl(monitor, payload.nonce), canvas).then(
+              () => null,
+              (e: unknown) => e,
+            )
+          : null;
       try {
         const info = await ipc.overlayInfo();
         if (live.current.nonce !== payload.nonce) return; // superseded by a newer arm
         st.info = info;
-        const img = frameRef.current;
-        if (!img) return;
-        const t0 = performance.now();
-        img.src = frameUrl(info.monitor, payload.nonce);
-        await img.decode();
-        const decodeMs = performance.now() - t0;
-        if (live.current.nonce !== payload.nonce) return;
         if (payload.cursor) {
           const cx = (payload.cursor.x - info.bounds.x) / info.scale;
           const cy = (payload.cursor.y - info.bounds.y) / info.scale;
@@ -326,7 +338,27 @@ export function Overlay() {
           }
         }
         draw();
-        await ipc.overlayReady(payload.nonce, decodeMs);
+        // The dim layer, hint and crosshair are painted: show the window now. The frozen screen
+        // follows as soon as it has been drawn (the old flow waited for a 4K image decode first).
+        await ipc.overlayReady(payload.nonce);
+
+        let pending = framePromise;
+        if (!pending && canvas) {
+          // Older backend without `monitor` in the arm event: request it now.
+          pending = loadFrame(frameUrl(info.monitor, payload.nonce), canvas).then(
+            () => null,
+            (e: unknown) => e,
+          );
+        }
+        const failure = pending ? await pending : null;
+        if (live.current.nonce !== payload.nonce) return;
+        if (failure) {
+          setError(errorMessage(failure));
+        } else if (canvas) {
+          st.frameReady = true;
+          canvas.style.visibility = 'visible';
+        }
+        draw();
       } catch (e) {
         setError(errorMessage(e));
       }
@@ -344,6 +376,18 @@ export function Overlay() {
         else unlisteners.push(fn);
       });
     keep(events.onOverlayArm((p) => void arm(p)));
+    // The window list is enumerated after the overlay opens; it arrives here.
+    keep(
+      events.onOverlayWindows((p) => {
+        const st = live.current;
+        if (p.nonce !== st.nonce || !st.info) return;
+        st.info = { ...st.info, windows: p.windows, windowsReady: true };
+        if (st.mode === 'window' && st.cursor) {
+          st.hover = hitTestWindow(st.info.windows, st.info.bounds, st.info.scale, st.cursor);
+        }
+        schedule();
+      }),
+    );
     keep(
       events.onOverlayMode((m) => {
         const st = live.current;
@@ -365,7 +409,13 @@ export function Overlay() {
       .overlayInfo()
       .then((info) => {
         if (!cancelled && live.current.nonce === 0) {
-          void arm({ nonce: info.nonce, mode: info.mode, purpose: info.purpose, cursor: null });
+          void arm({
+            monitor: info.monitor,
+            nonce: info.nonce,
+            mode: info.mode,
+            purpose: info.purpose,
+            cursor: null,
+          });
         }
       })
       .catch(() => undefined);
@@ -460,7 +510,7 @@ export function Overlay() {
       onPointerUp={onPointerUp}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <img ref={frameRef} className="ov-frame" alt="" draggable={false} />
+      <canvas ref={frameRef} className="ov-frame" aria-hidden="true" />
       <div ref={dimRef} className="ov-dim" />
       <div ref={selRef} className="ov-sel" style={{ display: 'none' }} />
       <div ref={vLineRef} className="ov-line ov-line-v" style={{ display: 'none' }} />

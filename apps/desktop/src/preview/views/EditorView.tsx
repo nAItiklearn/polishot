@@ -4,6 +4,7 @@ import {
   ExportPanel,
   Inspector,
   RedactPanel,
+  TextLayer,
   Toolbar,
   useEditorVersion,
   wordsToText,
@@ -21,6 +22,12 @@ import type { Looks } from '../hooks/useLooks';
 import { annotationNear } from '../lib/annotationHit';
 import { actionDef } from '../lib/commands';
 import { plural } from '../lib/format';
+
+/**
+ * Dev only: `?textlayer=package` puts the editor package's own TextLayer in place of the host's TextOverlay, so the two
+ * can be compared on a real slider drag (see e2e/polish.e2e.ts). Removed from a production build with the branch.
+ */
+const PACKAGE_TEXT_LAYER = import.meta.env.DEV && typeof location !== 'undefined' && new URLSearchParams(location.search).get('textlayer') === 'package';
 
 export type InspectorTab = 'style' | 'redact' | 'text' | 'export';
 
@@ -270,7 +277,7 @@ export function EditorView({ capture, tab, onTab, detections, looks, dragging, o
       >
         {hasCapture ? (
           <EditorCanvas editor={editor}>
-            <TextOverlay editor={editor} words={capture.words} />
+            {PACKAGE_TEXT_LAYER ? <TextLayer editor={editor} words={capture.words} onCopyText={onCopyText} /> : <TextOverlay editor={editor} words={capture.words} />}
             <FoundChip editor={editor} pending={pending} />
             <Toolbar editor={editor} />
           </EditorCanvas>

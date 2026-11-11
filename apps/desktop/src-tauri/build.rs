@@ -10,6 +10,7 @@ const COMMANDS: &[&str] = &[
     "capture_commit",
     "capture_cancel",
     // preview window
+    "preview_ready",
     "capture_start",
     "ocr_recognize",
     "open_file",

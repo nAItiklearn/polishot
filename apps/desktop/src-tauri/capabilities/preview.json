@@ -21,6 +21,7 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "allow-capture-start",
+    "allow-preview-ready",
     "allow-ocr-recognize",
     "allow-open-file",
     "allow-paste-clipboard-image",

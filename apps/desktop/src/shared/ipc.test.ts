@@ -107,16 +107,16 @@ describe('commands: names and argument shapes match CONTRACTS section 5', () => 
 
   it('uses the opener plugin for links and Show in folder', async () => {
     invokeMock.mockResolvedValue(undefined);
-    await ipc.openUrl('https://polishot.app/pricing');
+    await ipc.openUrl('https://polishot.cam/pricing');
     await ipc.revealInFolder('C:\\Shots\\a.png');
     expect(invokeMock.mock.calls[0]![0]).toBe('plugin:opener|open_url');
-    expect(invokeMock.mock.calls[0]![1]).toEqual({ url: 'https://polishot.app/pricing' });
+    expect(invokeMock.mock.calls[0]![1]).toEqual({ url: 'https://polishot.cam/pricing' });
     expect(invokeMock.mock.calls[1]![0]).toBe('plugin:opener|reveal_item_in_dir');
     expect(invokeMock.mock.calls[1]![1]).toEqual({ paths: ['C:\\Shots\\a.png'] });
   });
 
   it('refuses to open anything but https links', async () => {
-    for (const bad of ['http://polishot.app', 'javascript:alert(1)', 'file:///C:/x', 'polishot.app', 'https://']) {
+    for (const bad of ['http://polishot.cam', 'javascript:alert(1)', 'file:///C:/x', 'polishot.cam', 'https://']) {
       await expect(ipc.openUrl(bad)).rejects.toBeInstanceOf(IpcError);
     }
     expect(invokeMock).not.toHaveBeenCalled();

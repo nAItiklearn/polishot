@@ -15,7 +15,7 @@ use crate::jobs::{write_atomic, OcrJobs, OcrSlot, WorkerPool};
 use crate::license::{CredentialStore, LicenseStatus};
 use crate::ocr::{self, OcrWord};
 use crate::paths::Paths;
-use crate::session::{self, SingleFlight};
+use crate::session::{self, AckGate, OnceSlot, SingleFlight};
 use crate::settings::Settings;
 use crate::store::{Capture, CaptureMeta, CaptureStore, Frame, Source};
 use crate::winutil::{MonitorInfo, WinEntry};
@@ -41,15 +41,21 @@ pub enum Purpose {
     Gif,
 }
 
-/// One in-flight capture: the frozen frames and the windows that were visible at hotkey time.
+/// A monitor's frozen frame, filled in by the grab thread while the overlay is already opening.
+pub type FrameSlot = OnceSlot<Arc<Frame>>;
+/// The visible top-level windows, enumerated while the overlays open.
+pub type WindowsSlot = OnceSlot<Arc<Vec<WinEntry>>>;
+
+/// One in-flight capture: the frozen frames and the windows that were visible at hotkey time. The
+/// overlays are armed before the grab finishes, so both arrive through slots.
 pub struct Session {
     pub nonce: u64,
     pub mode: Mode,
     pub purpose: Purpose,
     pub started: std::time::Instant,
     pub monitors: Vec<MonitorInfo>,
-    pub frames: Vec<Arc<Frame>>,
-    pub windows: Vec<WinEntry>,
+    pub frames: Vec<Arc<FrameSlot>>,
+    pub windows: Arc<WindowsSlot>,
     pub committed: bool,
     pub first_shown: bool,
 }
@@ -84,6 +90,8 @@ pub struct AppState {
     pub ocr_pool: WorkerPool,
     /// Held while a hotkey press is grabbing the screen, so a double tap grabs once.
     pub start_flight: SingleFlight,
+    /// Holds the frozen overlay on screen until the preview acknowledges the new capture.
+    pub preview_gate: AckGate,
     /// Serialises `settings_set` end to end (read, apply side effects, save, publish).
     pub settings_lock: Mutex<()>,
     pub license: Mutex<LicenseStatus>,

@@ -75,3 +75,39 @@ export let native: NativeApi = tauriNative;
 export function setNative(n: NativeApi | null): void {
   native = n ?? tauriNative;
 }
+
+/**
+ * Resolves once the page is no longer visible (the window was hidden), or after `timeoutMs`, whichever comes
+ * first. Register it BEFORE asking the window to hide, so the event cannot be missed.
+ */
+export function whenHidden(timeoutMs = 400): Promise<void> {
+  if (typeof document === 'undefined' || document.visibilityState === 'hidden') return Promise.resolve();
+  return new Promise((resolve) => {
+    let timer = 0;
+    const finish = () => {
+      document.removeEventListener('visibilitychange', onChange);
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const onChange = () => {
+      if (document.visibilityState === 'hidden') finish();
+    };
+    timer = window.setTimeout(finish, timeoutMs);
+    document.addEventListener('visibilitychange', onChange);
+  });
+}
+
+/** One compositor pass or two: after the window reports hidden, Windows still needs a moment to stop drawing it. */
+export const HIDE_SETTLE_MS = 60;
+
+/**
+ * Hides the window and returns when it is really gone from the screen, so a frozen frame of the desktop taken next
+ * cannot contain it. This replaces a fixed 220 ms sleep: the webview says "hidden" within a frame or two, and a
+ * short settle covers the compositor. If the event never comes (it is only a safety net) it gives up after 400 ms.
+ */
+export async function hideAndSettle(settleMs: number = HIDE_SETTLE_MS): Promise<void> {
+  const hidden = whenHidden();
+  await native.hide().catch(() => undefined);
+  await hidden;
+  await new Promise<void>((resolve) => window.setTimeout(resolve, settleMs));
+}

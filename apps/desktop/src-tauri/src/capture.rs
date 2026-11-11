@@ -18,15 +18,21 @@ use crate::imgio;
 use crate::recorder;
 use crate::routes::{overlay_index, overlay_label};
 use crate::session;
+use crate::session::OnceSlot;
 use crate::settings::AfterCapture;
-use crate::state::{register_capture, state, Mode, Purpose, Session};
-use crate::store::{CaptureMeta, Frame, Source};
+use crate::state::{register_capture, state, FrameSlot, Mode, Purpose, Session, WindowsSlot};
+use crate::store::{CaptureMeta, Source};
 use crate::winmgr;
 use crate::winutil::{self, MonitorInfo, WinEntry};
 use crate::{clipboard, timing, tlog};
 
 /// Frozen sessions older than this are considered abandoned and replaced.
 const SESSION_TTL_SECS: u64 = 120;
+/// How long the frozen frame of a monitor may take to arrive (for `/frame/<n>` and for a commit
+/// that is made before the grab has finished).
+pub const FRAME_WAIT: std::time::Duration = std::time::Duration::from_millis(5000);
+/// How long a window commit waits for the window list.
+const WINDOWS_WAIT: std::time::Duration = std::time::Duration::from_millis(3000);
 
 // ---- IPC payloads ----------------------------------------------------------------------------
 
@@ -45,6 +51,9 @@ pub struct OverlayInfo {
     pub scale: f64,
     pub bounds: FBox,
     pub windows: Vec<WindowInfo>,
+    /// False while the window list is still being enumerated (see the `overlay:windows` event).
+    #[serde(rename = "windowsReady")]
+    pub windows_ready: bool,
     /// Current arm nonce and mode, so an overlay that loaded late can catch up.
     pub nonce: u64,
     pub mode: Mode,
@@ -53,10 +62,19 @@ pub struct OverlayInfo {
 
 #[derive(Debug, Clone, Serialize)]
 struct ArmPayload {
+    /// Which monitor this overlay covers, so it can request `/frame/<monitor>` straight away.
+    monitor: usize,
     nonce: u64,
     mode: Mode,
     purpose: Purpose,
     cursor: Option<CursorPos>,
+}
+
+/// Payload of `overlay:windows`: the window list arrived after the overlay was armed.
+#[derive(Debug, Clone, Serialize)]
+struct WindowsPayload {
+    nonce: u64,
+    windows: Vec<WindowInfo>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -118,44 +136,15 @@ fn start_blocking(
 
     let monitors = winutil::enumerate_monitors()?;
     let order = grab::monitor_order();
-
-    // Grab every monitor and enumerate windows concurrently; the frozen frame is the priority.
-    let (frames, windows) = std::thread::scope(|scope| {
-        let win_job = scope.spawn(|| winutil::enumerate_windows(&monitors));
-        let jobs: Vec<_> = monitors
-            .iter()
-            .map(|m| {
-                let order = &order;
-                scope.spawn(move || {
-                    let t = Instant::now();
-                    let r = grab::grab_monitor(m, order);
-                    (r, timing::ms(t))
-                })
-            })
-            .collect();
-        let frames: Vec<_> = jobs.into_iter().map(|j| j.join()).collect();
-        (frames, win_job.join())
-    });
-    let windows = windows.unwrap_or_default();
-
-    let mut arcs = Vec::with_capacity(monitors.len());
-    for (m, res) in monitors.iter().zip(frames) {
-        let (r, ms) = res.map_err(|_| "A screen grab thread crashed.".to_string())?;
-        let (frame, method) = r?;
-        tlog!(
-            "grab monitor {} {}x{} via {} in {ms:.1} ms",
-            m.index,
-            frame.width,
-            frame.height,
-            method.name()
-        );
-        arcs.push(Arc::new(frame));
-    }
-    tlog!("hotkey->frames grabbed {:.1} ms", timing::ms(t0));
-
     // Overlays are pre-created; rebuild only after a monitor layout change.
     let rebuilt = winmgr::ensure_overlays(app, &monitors)?;
 
+    // The overlays are armed *before* the screen is grabbed: they open (dimmed, with the hint and
+    // crosshair) at once and ask for their frozen frame, which the protocol handler answers as
+    // soon as the grab below has filled its slot. Showing something in tens of milliseconds
+    // instead of waiting for grab, transfer and image decode is what makes the hotkey feel instant.
+    let frame_slots: Vec<Arc<FrameSlot>> = monitors.iter().map(|_| OnceSlot::new()).collect();
+    let windows_slot: Arc<WindowsSlot> = OnceSlot::new();
     let nonce = st.nonce.fetch_add(1, Ordering::SeqCst) + 1;
     {
         let mut guard = st.session.lock().map_err(|_| "Capture is busy.")?;
@@ -165,19 +154,19 @@ fn start_blocking(
             purpose,
             started: t0,
             monitors: monitors.clone(),
-            frames: arcs,
-            windows,
+            frames: frame_slots.clone(),
+            windows: windows_slot.clone(),
             committed: false,
             first_shown: false,
         });
     }
-
     let cursor = winutil::cursor_pos().map(|(x, y)| CursorPos { x, y });
     for m in &monitors {
         let _ = app.emit_to(
             overlay_label(m.index).as_str(),
             "overlay:arm",
             ArmPayload {
+                monitor: m.index,
                 nonce,
                 mode,
                 purpose,
@@ -185,12 +174,104 @@ fn start_blocking(
             },
         );
     }
+    // Wake the (hidden) preview too: the capture it is about to show is a moment away.
+    let _ = app.emit_to(winmgr::PREVIEW, "capture:arming", ());
     tlog!(
         "hotkey->overlays armed {:.1} ms{}",
         timing::ms(t0),
         if rebuilt { " (overlays rebuilt)" } else { "" }
     );
-    Ok(())
+
+    // Grab every monitor concurrently. The window list is needed at once only when the overlay
+    // starts in window mode (or picks a window to scroll-capture); otherwise it is enumerated
+    // after the frames so it never competes with them, and still arrives long before anyone
+    // presses Space.
+    let windows_first = mode == Mode::Window || purpose == Purpose::Scroll;
+    std::thread::scope(|scope| {
+        let early_windows = windows_first
+            .then(|| scope.spawn(|| publish_windows(app, &monitors, nonce, &windows_slot)));
+        let jobs: Vec<_> = monitors
+            .iter()
+            .zip(&frame_slots)
+            .map(|(m, slot)| {
+                let order = &order;
+                scope.spawn(move || {
+                    let t = Instant::now();
+                    match grab::grab_monitor(m, order) {
+                        Ok((frame, method)) => {
+                            tlog!(
+                                "grab monitor {} {}x{} via {} in {:.1} ms",
+                                m.index,
+                                frame.width,
+                                frame.height,
+                                method.name(),
+                                timing::ms(t)
+                            );
+                            slot.set(Ok(Arc::new(frame)));
+                        }
+                        Err(e) => slot.set(Err(e)),
+                    }
+                })
+            })
+            .collect();
+        for job in jobs {
+            let _ = job.join();
+        }
+        // A grab thread that crashed never set its slot; nobody may wait for it forever.
+        for slot in &frame_slots {
+            slot.set(Err("A screen grab thread crashed.".to_string()));
+        }
+        if let Some(job) = early_windows {
+            let _ = job.join();
+        } else {
+            publish_windows(app, &monitors, nonce, &windows_slot);
+        }
+    });
+    tlog!("hotkey->frames grabbed {:.1} ms", timing::ms(t0));
+    match frame_slots
+        .iter()
+        .find_map(|slot| slot.get().and_then(Result::err))
+    {
+        Some(e) => Err(e), // the caller hides the overlays and reports the error
+        None => Ok(()),
+    }
+}
+
+/// The overlay entries for the windows that touch monitor \`m\`.
+fn window_infos(list: &[WinEntry], m: &MonitorInfo) -> Vec<WindowInfo> {
+    list.iter()
+        .filter(|w| w.rect.intersect(&m.bounds).is_some())
+        .map(|w| WindowInfo {
+            hwnd: w.hwnd as i64,
+            title: w.title.clone(),
+            app: w.app.clone(),
+            rect: w.rect.into(),
+            monitor: w.monitor,
+        })
+        .collect()
+}
+
+/// Enumerate the visible windows, publish them to the session, and tell every overlay (they may
+/// already be open with an empty list).
+fn publish_windows(app: &AppHandle, monitors: &[MonitorInfo], nonce: u64, slot: &WindowsSlot) {
+    let t = Instant::now();
+    let list = Arc::new(winutil::enumerate_windows(monitors));
+    slot.set(Ok(list.clone()));
+    tlog!(
+        "enumerated {} windows in {:.1} ms",
+        list.len(),
+        timing::ms(t)
+    );
+    for m in monitors {
+        let _ = app.emit_to(
+            overlay_label(m.index).as_str(),
+            "overlay:windows",
+            WindowsPayload {
+                nonce,
+                windows: window_infos(&list, m),
+            },
+        );
+    }
 }
 
 // ---- overlay side ----------------------------------------------------------------------------
@@ -209,23 +290,17 @@ pub fn overlay_info(app: &AppHandle, window: &WebviewWindow) -> Result<OverlayIn
         .ok_or("No capture is in progress.")?;
     tlog!("t+{:.1} ms overlay_info requested", timing::ms(s.started));
     let m = s.monitors.get(idx).ok_or("Unknown monitor.")?;
-    let windows = s
-        .windows
-        .iter()
-        .filter(|w| w.rect.intersect(&m.bounds).is_some())
-        .map(|w| WindowInfo {
-            hwnd: w.hwnd as i64,
-            title: w.title.clone(),
-            app: w.app.clone(),
-            rect: w.rect.into(),
-            monitor: w.monitor,
-        })
-        .collect();
+    // The list may still be coming (see `overlay:windows`); the overlay opens without it.
+    let (windows, windows_ready) = match s.windows.get() {
+        Some(Ok(list)) => (window_infos(&list, m), true),
+        _ => (Vec::new(), false),
+    };
     Ok(OverlayInfo {
         monitor: idx,
         scale: m.scale,
         bounds: m.bounds.into(),
         windows,
+        windows_ready,
         nonce: s.nonce,
         mode: s.mode,
         purpose: s.purpose,
@@ -326,8 +401,16 @@ struct Snapshot {
     purpose: Purpose,
     started: Instant,
     monitors: Vec<MonitorInfo>,
-    frames: Vec<Arc<Frame>>,
-    windows: Vec<WinEntry>,
+    frames: Vec<Arc<FrameSlot>>,
+    windows: Arc<WindowsSlot>,
+}
+
+impl Snapshot {
+    /// The window list; a commit that names a window has already seen it, so this returns at
+    /// once, and an empty list is the safe answer if enumeration somehow failed.
+    fn window_list(&self) -> Arc<Vec<WinEntry>> {
+        self.windows.wait(WINDOWS_WAIT).unwrap_or_default()
+    }
 }
 
 fn take_snapshot(app: &AppHandle) -> Result<Snapshot, String> {
@@ -354,14 +437,19 @@ fn region_pixels(
     monitor: usize,
     rect: IRect,
 ) -> Result<(u32, u32, Vec<u8>), String> {
-    let frame = snap.frames.get(monitor).ok_or("Unknown monitor.")?;
-    crop_region(frame, rect)
+    // A very quick drag can commit before the grab has finished; wait for the frame.
+    let frame = snap
+        .frames
+        .get(monitor)
+        .ok_or("Unknown monitor.")?
+        .wait(FRAME_WAIT)?;
+    crop_region(&frame, rect)
 }
 
 /// Pixels of a window: live WGC capture (works when occluded), or a crop of the frozen frame.
 fn window_pixels(snap: &Snapshot, hwnd: isize) -> Result<(u32, u32, Vec<u8>), String> {
-    let win = snap
-        .windows
+    let windows = snap.window_list();
+    let win = windows
         .iter()
         .find(|w| w.hwnd == hwnd)
         .ok_or("That window is no longer available.")?;
@@ -421,7 +509,7 @@ fn commit_recording(app: &AppHandle, req: CommitRequest, snap: &Snapshot) -> Res
         (Purpose::Scroll, CommitRequest::Window { hwnd }) => {
             let hwnd = isize::try_from(hwnd).map_err(|_| "Invalid window.".to_string())?;
             let win = snap
-                .windows
+                .window_list()
                 .iter()
                 .find(|w| w.hwnd == hwnd)
                 .cloned()
@@ -478,13 +566,11 @@ fn commit_capture(
     let meta = register_capture(app, w, h, rgba, source);
     tlog!("commit registered capture {:.1} ms", timing::ms(t_commit));
 
-    // Tell the preview about the new capture *before* the window appears, so it never shows the
-    // previous capture for a frame. Then the preview goes up and the overlays drop, in that order,
-    // so the desktop never flashes between them.
-    let _ = app.emit_to("preview", "capture:ready", &meta);
-    if after == AfterCapture::Preview {
-        winmgr::show_preview(app);
-    }
+    // Tell the preview about the new capture *before* its window appears, and keep the overlay's
+    // frozen frame on screen until the preview has the image drawn (or 400 ms pass), so the user
+    // sees the frozen screen and then the finished preview, never an empty card. Then the preview
+    // goes up and the overlays drop, in that order, so the desktop never flashes between them.
+    winmgr::announce_capture(app, &meta, after == AfterCapture::Preview);
     tlog!("commit preview shown {:.1} ms", timing::ms(t_commit));
     release_session(app, snap.nonce);
     tlog!(
@@ -513,14 +599,15 @@ fn copy_rgba_to_clipboard(app: &AppHandle, w: u32, h: u32, rgba: Vec<u8>) -> Res
         .ok_or("The main window is not available.")?
         .hwnd()
         .map_err(|e| e.to_string())?;
-    clipboard::set_image(
+    // PNG first, bitmap formats a moment later (the pixels are in hand, so nothing is decoded).
+    clipboard::copy_png_fast(
         hwnd,
-        &png,
-        &imgio::Decoded {
+        png,
+        Some(imgio::Decoded {
             width: w,
             height: h,
             rgba,
-        },
+        }),
     )
 }
 

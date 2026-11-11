@@ -155,6 +155,16 @@ export function useCaptureSession(editor: Editor, settings: Settings | null, not
     await runOcr(id);
   }, [runOcr]);
 
+  // The styled image is in the document and its first frame is drawn (editor.load draws synchronously, and the
+  // phase only becomes 'ready' once React has committed it): the backend may show the window now. Not tied to
+  // requestAnimationFrame, which does not run while the window is still hidden. A load that failed announces too,
+  // so a window that waits to be told is never left waiting for an image that is not coming; it shows the error.
+  // An older backend has no such command and the rejection is ignored.
+  const announcedFor = state.phase === 'ready' || state.phase === 'error' ? (state.meta?.id ?? null) : null;
+  useEffect(() => {
+    if (announcedFor) ipc.previewReady(announcedFor).catch(() => undefined);
+  }, [announcedFor]);
+
   // capture:ready and ocr:ready come from Rust.
   useEffect(() => {
     const offReady = events.onCaptureReady((meta) => {

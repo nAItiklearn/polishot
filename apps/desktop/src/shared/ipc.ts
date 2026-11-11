@@ -454,6 +454,13 @@ export const ipc = {
   licenseDeactivate: () => call<LicenseStatus>('license_deactivate'),
 
   pinOpen: (id: string) => call<void>('pin_open', { id: checkedId(id) }),
+
+  /**
+   * Tells the backend the styled image for `id` is on screen (editor loaded, first frame presented), so it can show
+   * the preview window now and never an empty card. Harmless when the window is already visible; an older backend
+   * without the command just rejects, which callers ignore.
+   */
+  previewReady: (id: string) => call<void>('preview_ready', { id: checkedId(id) }),
   appInfo: () => call<AppInfo>('app_info'),
 
   /**

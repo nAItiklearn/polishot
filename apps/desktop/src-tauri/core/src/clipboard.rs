@@ -2,24 +2,32 @@
 //!
 //! * Browsers, Slack, Discord and Office read "PNG" and keep transparency.
 //! * CF_DIBV5 carries alpha for apps that prefer bitmaps.
-//! * CF_DIB is flattened on white so legacy apps (Paint, Word) never show black corners.
+//! * CF_DIB is flattened on white so legacy apps (Paint, Word) never show black corners. Opaque
+//!   images skip it: Windows synthesises CF_DIB from CF_DIBV5 on request.
+//!
+//! Copying is two-phase so it feels instant: the PNG goes on the clipboard at once (a few
+//! milliseconds, and it is what browsers, Slack and modern Office read), and the bitmap formats,
+//! which cost hundreds of milliseconds to build for a 4K screenshot, are added a moment later on a
+//! background thread, only if nothing else has been copied in between.
 //!
 //! The DIB builders/parsers are pure and unit-tested; the Win32 calls are thin wrappers.
 
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use windows::core::w;
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-    RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
+    IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
-    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT,
 };
 use windows::Win32::System::Ole::{CF_DIB, CF_DIBV5, CF_UNICODETEXT};
 
-use crate::imgio;
+use crate::{imgio, pixels, tlog};
 
 const MAX_CLIPBOARD_BYTES: usize = 256 * 1024 * 1024;
 const BI_RGB: u32 = 0;
@@ -36,45 +44,46 @@ fn put_u16(v: &mut Vec<u8>, x: u16) {
     v.extend_from_slice(&x.to_le_bytes());
 }
 
-/// CF_DIB: BITMAPINFOHEADER + bottom-up 24-bit BGR rows (4-byte aligned), flattened on white.
-pub fn build_dib24(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
-    let flat = imgio::flatten_on_white(rgba);
-    let stride = (w as usize * 3).div_ceil(4) * 4;
-    let image_size = stride * h as usize;
-    let mut out = Vec::with_capacity(40 + image_size);
+/// Bytes per row of a 24-bit DIB: three bytes per pixel, padded to a multiple of four.
+fn dib24_stride(w: u32) -> usize {
+    (w as usize * 3).div_ceil(4) * 4
+}
+
+/// Total size of a CF_DIB for a `w x h` image.
+pub fn dib24_len(w: u32, h: u32) -> usize {
+    40 + dib24_stride(w) * h as usize
+}
+
+/// Total size of a CF_DIBV5 for a `w x h` image.
+pub fn dibv5_len(w: u32, h: u32) -> usize {
+    124 + w as usize * h as usize * 4
+}
+
+fn dib24_header(w: u32, h: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(40);
     put_u32(&mut out, 40);
     put_u32(&mut out, w);
     put_u32(&mut out, h); // positive = bottom-up
     put_u16(&mut out, 1);
     put_u16(&mut out, 24);
     put_u32(&mut out, BI_RGB);
-    put_u32(&mut out, image_size as u32);
+    put_u32(&mut out, (dib24_stride(w) * h as usize) as u32);
     put_u32(&mut out, 2835);
     put_u32(&mut out, 2835);
     put_u32(&mut out, 0);
     put_u32(&mut out, 0);
-    for y in (0..h as usize).rev() {
-        let row = &flat[y * w as usize * 4..(y + 1) * w as usize * 4];
-        let start = out.len();
-        for p in row.chunks_exact(4) {
-            out.extend_from_slice(&[p[2], p[1], p[0]]);
-        }
-        out.resize(start + stride, 0);
-    }
     out
 }
 
-/// CF_DIBV5: BITMAPV5HEADER + bottom-up 32-bit BGRA with an alpha mask.
-pub fn build_dibv5(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
-    let image_size = w as usize * h as usize * 4;
-    let mut out = Vec::with_capacity(124 + image_size);
+fn dibv5_header(w: u32, h: u32) -> Vec<u8> {
+    let mut out = Vec::with_capacity(124);
     put_u32(&mut out, 124);
     put_u32(&mut out, w);
     put_u32(&mut out, h);
     put_u16(&mut out, 1);
     put_u16(&mut out, 32);
     put_u32(&mut out, BI_BITFIELDS);
-    put_u32(&mut out, image_size as u32);
+    put_u32(&mut out, (w as usize * h as usize * 4) as u32);
     put_u32(&mut out, 2835);
     put_u32(&mut out, 2835);
     put_u32(&mut out, 0);
@@ -93,12 +102,65 @@ pub fn build_dibv5(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
     put_u32(&mut out, 0); // profile size
     put_u32(&mut out, 0); // reserved
     debug_assert_eq!(out.len(), 124);
-    for y in (0..h as usize).rev() {
-        let row = &rgba[y * w as usize * 4..(y + 1) * w as usize * 4];
-        for p in row.chunks_exact(4) {
-            out.extend_from_slice(&[p[2], p[1], p[0], p[3]]);
+    out
+}
+
+/// Write a CF_DIB into `dst` (exactly [`dib24_len`] bytes): BITMAPINFOHEADER + bottom-up
+/// 24-bit BGR rows (4-byte aligned), flattened on white. Rows are filled in parallel bands.
+pub fn fill_dib24(dst: &mut [u8], w: u32, h: u32, rgba: &[u8], threads: usize) {
+    debug_assert_eq!(dst.len(), dib24_len(w, h));
+    debug_assert_eq!(rgba.len(), w as usize * h as usize * 4);
+    let (head, body) = dst.split_at_mut(40);
+    head.copy_from_slice(&dib24_header(w, h));
+    let px = w as usize;
+    let last = h as usize - 1;
+    pixels::par_rows(body, dib24_stride(w), threads, |i, row| {
+        let y = last - i; // bottom-up
+        let src = &rgba[y * px * 4..(y + 1) * px * 4];
+        for (d, p) in row.chunks_exact_mut(3).zip(src.chunks_exact(4)) {
+            let a = u32::from(p[3]);
+            if a == 255 {
+                d[0] = p[2];
+                d[1] = p[1];
+                d[2] = p[0];
+            } else {
+                // Same arithmetic as `imgio::flatten_on_white`.
+                let blend = |c: u8| ((u32::from(c) * a + 255 * (255 - a) + 127) / 255) as u8;
+                d[0] = blend(p[2]);
+                d[1] = blend(p[1]);
+                d[2] = blend(p[0]);
+            }
         }
-    }
+        row[px * 3..].fill(0); // row padding
+    });
+}
+
+/// Write a CF_DIBV5 into `dst` (exactly [`dibv5_len`] bytes): BITMAPV5HEADER + bottom-up 32-bit
+/// BGRA with an alpha mask. A u32 channel swap per pixel, in parallel bands.
+pub fn fill_dibv5(dst: &mut [u8], w: u32, h: u32, rgba: &[u8], threads: usize) {
+    debug_assert_eq!(dst.len(), dibv5_len(w, h));
+    debug_assert_eq!(rgba.len(), w as usize * h as usize * 4);
+    let (head, body) = dst.split_at_mut(124);
+    head.copy_from_slice(&dibv5_header(w, h));
+    let row_bytes = w as usize * 4;
+    let last = h as usize - 1;
+    pixels::par_rows(body, row_bytes, threads, |i, row| {
+        let y = last - i; // bottom-up
+        pixels::swap_rb(row, &rgba[y * row_bytes..(y + 1) * row_bytes], false);
+    });
+}
+
+/// CF_DIB: BITMAPINFOHEADER + bottom-up 24-bit BGR rows (4-byte aligned), flattened on white.
+pub fn build_dib24(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; dib24_len(w, h)];
+    fill_dib24(&mut out, w, h, rgba, pixels::default_threads());
+    out
+}
+
+/// CF_DIBV5: BITMAPV5HEADER + bottom-up 32-bit BGRA with an alpha mask.
+pub fn build_dibv5(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; dibv5_len(w, h)];
+    fill_dibv5(&mut out, w, h, rgba, pixels::default_threads());
     out
 }
 
@@ -201,17 +263,23 @@ struct Staged {
 
 impl Staged {
     fn new(format: u32, data: &[u8]) -> Result<Self, String> {
-        // SAFETY: allocates a movable block and copies `data` in while it is locked. The block is
-        // freed by `Drop` unless `put` hands it to the clipboard.
+        Self::build(format, data.len(), |dst| dst.copy_from_slice(data))
+    }
+
+    /// Allocate `len` zeroed bytes and let `fill` write the format straight into them, so a
+    /// big bitmap is built once, in place, instead of in a Vec and then copied.
+    fn build(format: u32, len: usize, fill: impl FnOnce(&mut [u8])) -> Result<Self, String> {
+        // SAFETY: allocates a movable block and fills it while it is locked. The block is freed
+        // by `Drop` unless `put` hands it to the clipboard.
         unsafe {
-            let hmem = GlobalAlloc(GMEM_MOVEABLE, data.len().max(1))
+            let hmem = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, len.max(1))
                 .map_err(|_| "Not enough memory to copy the image.".to_string())?;
             let ptr = GlobalLock(hmem) as *mut u8;
             if ptr.is_null() {
                 let _ = GlobalFree(Some(hmem));
                 return Err("Could not lock clipboard memory.".to_string());
             }
-            std::ptr::copy_nonoverlapping(data.as_ptr(), ptr, data.len());
+            fill(std::slice::from_raw_parts_mut(ptr, len));
             let _ = GlobalUnlock(hmem);
             Ok(Self {
                 format,
@@ -275,59 +343,102 @@ fn available(format: u32) -> bool {
 }
 
 /// Above this many pixel bytes (64 MB, about a 4K screenshot and a half) the explicit CF_DIB is
-/// skipped: building a flattened 24-bit copy of a huge image costs time and memory, and Windows
-/// synthesises CF_DIB from CF_DIBV5 on request anyway.
+/// skipped even for transparent images: a flattened 24-bit copy of a huge image costs time and
+/// memory, and Windows synthesises a CF_DIB from CF_DIBV5 on request anyway.
 pub const MAX_EXPLICIT_DIB_BYTES: usize = 64 * 1024 * 1024;
 
-/// Whether an image of `rgba_len` pixel bytes gets an explicit, white-flattened CF_DIB.
-pub fn wants_explicit_dib(rgba_len: usize) -> bool {
-    rgba_len <= MAX_EXPLICIT_DIB_BYTES
+/// Whether an image gets an explicit, white-flattened CF_DIB: only if it has transparency (an
+/// opaque image's synthesised CF_DIB is already right) and is not huge.
+pub fn explicit_dib_needed(rgba: &[u8]) -> bool {
+    rgba.len() <= MAX_EXPLICIT_DIB_BYTES && pixels::has_transparency(rgba)
 }
 
-/// The bitmap formats of an image, built before the clipboard is touched.
-pub struct BitmapFormats {
-    pub dibv5: Vec<u8>,
-    pub dib24: Option<Vec<u8>>,
-}
-
-/// Build CF_DIBV5 and (for images that are not huge) CF_DIB, on two threads at once.
-pub fn prepare_bitmaps(decoded: &imgio::Decoded) -> BitmapFormats {
-    let (w, h, rgba) = (decoded.width, decoded.height, &decoded.rgba[..]);
-    if !wants_explicit_dib(rgba.len()) {
-        return BitmapFormats {
-            dibv5: build_dibv5(w, h, rgba),
-            dib24: None,
-        };
-    }
-    std::thread::scope(|scope| {
-        let flat = scope.spawn(|| build_dib24(w, h, rgba));
-        let dibv5 = build_dibv5(w, h, rgba);
-        BitmapFormats {
-            dibv5,
-            // A panicked builder only costs the legacy format.
-            dib24: flat.join().ok(),
-        }
-    })
-}
-
-/// Put an image on the clipboard. `png` is the encoded image; `decoded` is the same image as RGBA.
-/// Everything is built and copied into global memory first, so the clipboard is held (empty, and
-/// locked against other apps) only for the few calls that hand the blocks over.
-pub fn set_image(hwnd: HWND, png: &[u8], decoded: &imgio::Decoded) -> Result<(), String> {
-    let bitmaps = prepare_bitmaps(decoded);
-    let mut staged = vec![
-        Staged::new(png_format(), png)?,
-        Staged::new(u32::from(CF_DIBV5.0), &bitmaps.dibv5)?,
-    ];
-    if let Some(dib) = &bitmaps.dib24 {
-        staged.push(Staged::new(u32::from(CF_DIB.0), dib)?);
-    }
-    drop(bitmaps);
+/// Phase 1 of an image copy: replace the clipboard with just the PNG. Returns the clipboard
+/// sequence number right after the write, which phase 2 uses to detect that something else was
+/// copied in the meantime.
+pub fn set_png(hwnd: HWND, png: &[u8]) -> Result<u32, String> {
+    let block = Staged::new(png_format(), png)?;
     let _open = Open::new(hwnd)?;
     // SAFETY: clipboard is open.
     unsafe { EmptyClipboard() }.map_err(|_| "Could not clear the clipboard.".to_string())?;
+    block.put()?;
+    // SAFETY: plain query.
+    Ok(unsafe { GetClipboardSequenceNumber() })
+}
+
+/// Phase 2: add CF_DIBV5 (and CF_DIB where needed) to the clipboard content written by
+/// [`set_png`], unless the clipboard changed since (then nothing is touched and `false` is
+/// returned). The bitmaps are built straight into global memory before the clipboard is opened.
+fn append_bitmaps(hwnd: HWND, expected_seq: u32, decoded: &imgio::Decoded) -> Result<bool, String> {
+    let (w, h, rgba) = (decoded.width, decoded.height, &decoded.rgba[..]);
+    let threads = pixels::default_threads();
+    let mut staged = vec![Staged::build(
+        u32::from(CF_DIBV5.0),
+        dibv5_len(w, h),
+        |dst| fill_dibv5(dst, w, h, rgba, threads),
+    )?];
+    if explicit_dib_needed(rgba) {
+        staged.push(Staged::build(
+            u32::from(CF_DIB.0),
+            dib24_len(w, h),
+            |dst| fill_dib24(dst, w, h, rgba, threads),
+        )?);
+    }
+    let _open = Open::new(hwnd)?;
+    // SAFETY: plain query.
+    if unsafe { GetClipboardSequenceNumber() } != expected_seq {
+        return Ok(false); // the user copied something else; leave it alone
+    }
     for block in staged {
         block.put()?;
+    }
+    Ok(true)
+}
+
+/// Newest image copy; a slower, older phase 2 gives up when it sees it has been superseded.
+static COPY_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Copy an image: the PNG is on the clipboard when this returns (a few milliseconds), and the
+/// bitmap formats follow from a background thread. `decoded` is the same image as RGBA if the
+/// caller has it; otherwise the PNG is decoded in the background.
+pub fn copy_png_fast(
+    hwnd: HWND,
+    png: Vec<u8>,
+    decoded: Option<imgio::Decoded>,
+) -> Result<(), String> {
+    let seq = set_png(hwnd, &png)?;
+    let generation = COPY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let owner = hwnd.0 as isize;
+    let spawned = std::thread::Builder::new()
+        .name("clipboard-bitmaps".to_string())
+        .spawn(move || {
+            let started = std::time::Instant::now();
+            let decoded = match decoded {
+                Some(d) => d,
+                None => match imgio::decode_limited(&png) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tlog!("clipboard bitmaps skipped: {e}");
+                        return;
+                    }
+                },
+            };
+            drop(png);
+            if COPY_GENERATION.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            let hwnd = HWND(owner as *mut c_void);
+            match append_bitmaps(hwnd, seq, &decoded) {
+                Ok(true) => tlog!(
+                    "clipboard bitmaps added in {:.1} ms",
+                    crate::timing::ms(started)
+                ),
+                Ok(false) => tlog!("clipboard bitmaps skipped: something else was copied"),
+                Err(e) => tlog!("clipboard bitmaps failed: {e}"),
+            }
+        });
+    if spawned.is_err() {
+        tlog!("could not start the clipboard bitmap thread");
     }
     Ok(())
 }
@@ -460,25 +571,145 @@ mod tests {
     }
 
     #[test]
-    fn the_explicit_dib_is_skipped_only_for_huge_images() {
-        assert!(wants_explicit_dib(0));
-        assert!(wants_explicit_dib(33 * 1024 * 1024)); // a 4K screenshot
-        assert!(wants_explicit_dib(MAX_EXPLICIT_DIB_BYTES));
-        assert!(!wants_explicit_dib(MAX_EXPLICIT_DIB_BYTES + 1));
+    fn the_explicit_dib_is_only_for_transparent_images_that_are_not_huge() {
+        let opaque = vec![255u8; 4 * 100];
+        let mut see_through = opaque.clone();
+        see_through[3] = 128;
+        assert!(!explicit_dib_needed(&opaque), "Windows synthesises it");
+        assert!(explicit_dib_needed(&see_through));
+        assert!(!explicit_dib_needed(&[]));
+        // Huge transparent images skip it too.
+        let mut huge = vec![255u8; MAX_EXPLICIT_DIB_BYTES + 4];
+        huge[3] = 0;
+        assert!(!explicit_dib_needed(&huge));
+        huge.truncate(MAX_EXPLICIT_DIB_BYTES);
+        assert!(explicit_dib_needed(&huge));
+    }
+
+    /// The straightforward builders the fast ones replaced, kept as the reference.
+    fn reference_dibv5(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+        let mut out = dibv5_header(w, h);
+        for y in (0..h as usize).rev() {
+            for p in rgba[y * w as usize * 4..(y + 1) * w as usize * 4].chunks_exact(4) {
+                out.extend_from_slice(&[p[2], p[1], p[0], p[3]]);
+            }
+        }
+        out
+    }
+
+    fn reference_dib24(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+        let flat = imgio::flatten_on_white(rgba);
+        let stride = (w as usize * 3).div_ceil(4) * 4;
+        let mut out = dib24_header(w, h);
+        for y in (0..h as usize).rev() {
+            let start = out.len();
+            for p in flat[y * w as usize * 4..(y + 1) * w as usize * 4].chunks_exact(4) {
+                out.extend_from_slice(&[p[2], p[1], p[0]]);
+            }
+            out.resize(start + stride, 0);
+        }
+        out
+    }
+
+    fn noisy(w: u32, h: u32, seed: u32, transparent: bool) -> Vec<u8> {
+        let mut x = seed | 1;
+        (0..w as usize * h as usize * 4)
+            .map(|i| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                let b = (x >> 8) as u8;
+                if i % 4 == 3 && !transparent {
+                    255
+                } else {
+                    b
+                }
+            })
+            .collect()
     }
 
     #[test]
-    fn bitmaps_are_prepared_before_the_clipboard_is_opened() {
-        let (w, h, rgba) = sample();
-        let decoded = imgio::Decoded {
-            width: w,
-            height: h,
-            rgba: rgba.clone(),
+    fn the_fast_builders_match_the_straightforward_ones_byte_for_byte() {
+        // Odd widths exercise the 24-bit row padding; 1200 x 900 is large enough to split into
+        // bands across threads.
+        for (w, h) in [(1, 1), (3, 2), (7, 5), (64, 33), (1200, 900)] {
+            for transparent in [false, true] {
+                let rgba = noisy(w, h, w * 31 + h, transparent);
+                let v5 = reference_dibv5(w, h, &rgba);
+                let d24 = reference_dib24(w, h, &rgba);
+                for threads in [1usize, 2, 4] {
+                    let mut got5 = vec![0xAAu8; dibv5_len(w, h)];
+                    fill_dibv5(&mut got5, w, h, &rgba, threads);
+                    assert_eq!(
+                        got5, v5,
+                        "dibv5 {w}x{h} transparent={transparent} t={threads}"
+                    );
+                    // Padding and every other byte are written even into dirty memory.
+                    let mut got24 = vec![0xAAu8; dib24_len(w, h)];
+                    fill_dib24(&mut got24, w, h, &rgba, threads);
+                    assert_eq!(
+                        got24, d24,
+                        "dib24 {w}x{h} transparent={transparent} t={threads}"
+                    );
+                }
+                assert_eq!(build_dibv5(w, h, &rgba), v5);
+                assert_eq!(build_dib24(w, h, &rgba), d24);
+            }
+        }
+    }
+
+    /// `cargo test --release -p polishot-desktop-core -- --ignored clipboard_build_times --nocapture`
+    /// Where the time of a 4K copy goes, and what the fast builders save.
+    #[test]
+    #[ignore = "timing test: run in release mode"]
+    fn clipboard_build_times() {
+        use std::time::Instant;
+        let (w, h) = (3786u32, 2566u32);
+        let rgba = noisy(w, h, 11, false);
+        let time = |label: &str, f: &mut dyn FnMut()| {
+            let t = Instant::now();
+            f();
+            eprintln!("{label:<34} {:>7.1} ms", t.elapsed().as_secs_f64() * 1e3);
         };
-        let formats = prepare_bitmaps(&decoded);
-        // Built on two threads, but identical to the single-threaded builders.
-        assert_eq!(formats.dibv5, build_dibv5(w, h, &rgba));
-        assert_eq!(formats.dib24, Some(build_dib24(w, h, &rgba)));
+        let png = imgio::encode_png_fast(w, h, &rgba).unwrap();
+        eprintln!("{w}x{h}, PNG {} KB", png.len() / 1024);
+        time("decode PNG (was before the toast)", &mut || {
+            let _ = imgio::decode_limited(&png).unwrap();
+        });
+        time("has_transparency (opaque scan)", &mut || {
+            assert!(!pixels::has_transparency(&rgba));
+        });
+        time("CF_DIBV5 old per-pixel push", &mut || {
+            let _ = reference_dibv5(w, h, &rgba);
+        });
+        let mut out = vec![0u8; dibv5_len(w, h)];
+        time("CF_DIBV5 new, 1 thread", &mut || {
+            fill_dibv5(&mut out, w, h, &rgba, 1)
+        });
+        time("CF_DIBV5 new, 4 threads", &mut || {
+            fill_dibv5(&mut out, w, h, &rgba, 4)
+        });
+        time("CF_DIB old flatten + push (opaque)", &mut || {
+            let _ = reference_dib24(w, h, &rgba);
+        });
+        let mut out24 = vec![0u8; dib24_len(w, h)];
+        time("CF_DIB new, 4 threads (opaque)", &mut || {
+            fill_dib24(&mut out24, w, h, &rgba, 4)
+        });
+    }
+
+    #[test]
+    fn declared_lengths_match_what_is_built() {
+        for (w, h) in [(1u32, 1u32), (5, 3), (4, 4), (3786, 2)] {
+            assert_eq!(
+                dib24_len(w, h),
+                40 + (w as usize * 3).div_ceil(4) * 4 * h as usize
+            );
+            assert_eq!(dibv5_len(w, h), 124 + w as usize * h as usize * 4);
+            let rgba = vec![200u8; w as usize * h as usize * 4];
+            assert_eq!(build_dib24(w, h, &rgba).len(), dib24_len(w, h));
+            assert_eq!(build_dibv5(w, h, &rgba).len(), dibv5_len(w, h));
+        }
     }
 
     #[test]

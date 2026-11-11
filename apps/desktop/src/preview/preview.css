@@ -8,10 +8,31 @@
  * interaction (focus rings, text selection, close hover) and on errors.
  */
 
+/*
+ * The site's two faces, bundled with the app (no network, no fallback flash): Cormorant Garamond for display
+ * headings and Instrument Sans for the interface, both variable and Latin only. `block` plus the wait in
+ * main.tsx means text is never drawn in a stand-in and then swapped, which would move everything.
+ */
+@font-face {
+  font-family: 'Polishot Serif';
+  src: url('@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Polishot Sans';
+  src: url('@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
-  --pv-font: 'Geist Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --pv-font: 'Polishot Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial, sans-serif;
   --pv-mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', 'SF Mono', Consolas, monospace;
-  --pv-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --pv-serif: 'Polishot Serif', Georgia, 'Times New Roman', serif;
   /* The editor's own classes read these two. */
   --pe-font: var(--pv-font);
   --pe-mono: var(--pv-mono);

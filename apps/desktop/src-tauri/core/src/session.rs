@@ -8,6 +8,8 @@
 //!   still current ([`release`], [`reopen`]).
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// What the rules need to know about a session.
 pub trait Session {
@@ -72,10 +74,124 @@ impl Drop for FlightGuard<'_> {
     }
 }
 
+/// A value produced on one thread that others wait for, once. The capture session uses one per
+/// monitor frame (and one for the window list) so the overlays can open the moment the hotkey is
+/// pressed while the screen is still being grabbed: the frozen frame is requested straight away
+/// and answered as soon as it exists.
+pub struct OnceSlot<T> {
+    value: Mutex<Option<Result<T, String>>>,
+    ready: Condvar,
+}
+
+impl<T: Clone> OnceSlot<T> {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            value: Mutex::new(None),
+            ready: Condvar::new(),
+        })
+    }
+
+    /// Publish the value (or the reason there is none). Only the first call counts.
+    pub fn set(&self, value: Result<T, String>) {
+        if let Ok(mut slot) = self.value.lock() {
+            if slot.is_none() {
+                *slot = Some(value);
+            }
+        }
+        self.ready.notify_all();
+    }
+
+    /// The value if it is there already.
+    pub fn get(&self) -> Option<Result<T, String>> {
+        self.value.lock().ok().and_then(|slot| slot.clone())
+    }
+
+    /// Wait for the value, at most \`timeout\`.
+    pub fn wait(&self, timeout: Duration) -> Result<T, String> {
+        let unavailable = || "The screen is not available.".to_string();
+        let guard = self.value.lock().map_err(|_| unavailable())?;
+        let (guard, waited) = self
+            .ready
+            .wait_timeout_while(guard, timeout, |slot| slot.is_none())
+            .map_err(|_| unavailable())?;
+        match guard.as_ref() {
+            Some(result) => result.clone(),
+            None if waited.timed_out() => Err("The screen grab took too long.".to_string()),
+            None => Err(unavailable()),
+        }
+    }
+}
+
+/// Lets a capture commit hold the frozen overlay on screen until the preview window has the new
+/// image decoded and drawn (the UI calls \`preview_ready\`), so the preview never appears empty.
+///
+/// It only waits once the UI has shown it sends acknowledgements ([\`AckGate::supported\`]); a UI
+/// that never acknowledges costs nothing, and one that is late costs at most the timeout.
+#[derive(Default)]
+pub struct AckGate {
+    state: Mutex<GateState>,
+    changed: Condvar,
+    supported: AtomicBool,
+}
+
+#[derive(Default)]
+struct GateState {
+    expecting: Option<String>,
+    acked: bool,
+}
+
+impl AckGate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether the UI has ever acknowledged a capture.
+    pub fn supported(&self) -> bool {
+        self.supported.load(Ordering::Acquire)
+    }
+
+    /// Start expecting an acknowledgement for \`id\`. Call this *before* announcing the capture, so
+    /// an acknowledgement that arrives quickly is not lost.
+    pub fn begin(&self, id: &str) {
+        if let Ok(mut s) = self.state.lock() {
+            s.expecting = Some(id.to_string());
+            s.acked = false;
+        }
+    }
+
+    /// The UI says its preview shows \`id\`. Returns whether this was the awaited capture.
+    pub fn ack(&self, id: &str) -> bool {
+        self.supported.store(true, Ordering::Release);
+        let Ok(mut s) = self.state.lock() else {
+            return false;
+        };
+        let awaited = s.expecting.as_deref() == Some(id);
+        if awaited {
+            s.acked = true;
+            self.changed.notify_all();
+        }
+        awaited
+    }
+
+    /// Wait for the acknowledgement of the capture passed to [\`AckGate::begin\`]; \`true\` if it
+    /// came, \`false\` on timeout. Stops expecting either way.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let Ok(s) = self.state.lock() else {
+            return false;
+        };
+        let Ok((mut s, _)) = self.changed.wait_timeout_while(s, timeout, |s| !s.acked) else {
+            return false;
+        };
+        s.expecting = None;
+        std::mem::take(&mut s.acked)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Barrier};
+    use std::time::Instant;
 
     use super::*;
 
@@ -173,6 +289,92 @@ mod tests {
             f.try_begin().is_some(),
             "a panic must not lock capture forever"
         );
+    }
+
+    #[test]
+    fn a_slot_hands_its_value_to_waiters_and_late_comers() {
+        let slot: Arc<OnceSlot<u32>> = OnceSlot::new();
+        assert!(slot.get().is_none());
+        let waiter = {
+            let slot = slot.clone();
+            std::thread::spawn(move || slot.wait(Duration::from_secs(10)))
+        };
+        std::thread::sleep(Duration::from_millis(30));
+        slot.set(Ok(7));
+        assert_eq!(waiter.join().unwrap(), Ok(7));
+        assert_eq!(slot.get(), Some(Ok(7)));
+        assert_eq!(slot.wait(Duration::from_millis(1)), Ok(7));
+        // The first value wins.
+        slot.set(Ok(8));
+        slot.set(Err("late".into()));
+        assert_eq!(slot.get(), Some(Ok(7)));
+    }
+
+    #[test]
+    fn a_slot_reports_failure_and_timeout() {
+        let failed: Arc<OnceSlot<u32>> = OnceSlot::new();
+        failed.set(Err("grab failed".into()));
+        assert_eq!(
+            failed.wait(Duration::from_secs(1)),
+            Err("grab failed".into())
+        );
+
+        let never: Arc<OnceSlot<u32>> = OnceSlot::new();
+        let t = Instant::now();
+        let e = never.wait(Duration::from_millis(40)).unwrap_err();
+        assert!(e.contains("took too long"), "{e}");
+        assert!(t.elapsed() < Duration::from_secs(5));
+        // A value arriving after a timeout is still delivered to the next wait.
+        never.set(Ok(1));
+        assert_eq!(never.wait(Duration::from_millis(1)), Ok(1));
+    }
+
+    #[test]
+    fn the_gate_does_not_wait_for_a_ui_that_never_acknowledges() {
+        let gate = AckGate::new();
+        assert!(!gate.supported());
+        // An acknowledgement nobody awaits still proves the UI speaks the protocol.
+        assert!(!gate.ack("some-capture"));
+        assert!(gate.supported());
+    }
+
+    #[test]
+    fn an_acknowledgement_that_comes_first_is_not_lost() {
+        let gate = AckGate::new();
+        gate.begin("a");
+        assert!(gate.ack("a"));
+        let t = Instant::now();
+        assert!(gate.wait(Duration::from_secs(5)));
+        assert!(t.elapsed() < Duration::from_secs(1), "returned at once");
+        // It is consumed: the next capture starts from scratch.
+        gate.begin("b");
+        assert!(!gate.wait(Duration::from_millis(30)), "no ack for b");
+    }
+
+    #[test]
+    fn only_the_awaited_capture_releases_the_gate() {
+        let gate = Arc::new(AckGate::new());
+        gate.begin("current");
+        assert!(!gate.ack("older"));
+        assert!(!gate.ack(""));
+        let waiter = {
+            let gate = gate.clone();
+            std::thread::spawn(move || gate.wait(Duration::from_secs(10)))
+        };
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(gate.ack("current"));
+        assert!(waiter.join().unwrap());
+        // Late acknowledgements after the wait are ignored.
+        assert!(!gate.ack("current"));
+    }
+
+    #[test]
+    fn a_missing_acknowledgement_times_out_instead_of_hanging() {
+        let gate = AckGate::new();
+        gate.begin("x");
+        let t = Instant::now();
+        assert!(!gate.wait(Duration::from_millis(50)));
+        assert!(t.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

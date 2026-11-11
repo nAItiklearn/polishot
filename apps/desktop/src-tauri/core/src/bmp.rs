@@ -4,7 +4,10 @@
 //! pixels, top-down. Using BI_BITFIELDS with no alpha mask makes decoders ignore the unused
 //! fourth byte, so screen grabs (alpha undefined) display opaque without a fix-up pass.
 
-pub const HEADER_LEN: usize = 14 + 40 + 12;
+/// Two zero bytes after the channel masks put the pixel data on a 4-byte boundary, so the overlay
+/// can read it as a `Uint32Array` without copying (the offset field says where the pixels start,
+/// so every BMP decoder is unaffected).
+pub const HEADER_LEN: usize = 14 + 40 + 12 + 2;
 
 /// Write the BMP header for a `w x h` top-down 32bpp image into `out[..HEADER_LEN]`.
 pub fn write_header(out: &mut [u8], w: u32, h: u32) {
@@ -34,15 +37,14 @@ pub fn write_header(out: &mut [u8], w: u32, h: u32) {
 pub fn from_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; HEADER_LEN + rgba.len()];
     write_header(&mut out, w, h);
-    for (d, s) in out[HEADER_LEN..]
-        .chunks_exact_mut(4)
-        .zip(rgba.chunks_exact(4))
-    {
-        d[0] = s[2];
-        d[1] = s[1];
-        d[2] = s[0];
-        d[3] = 255;
-    }
+    // A u32 channel swap per pixel, in row bands on a few threads for big images.
+    let row = (w as usize * 4).max(4);
+    crate::pixels::par_rows(
+        &mut out[HEADER_LEN..],
+        row,
+        crate::pixels::default_threads(),
+        |i, dst| crate::pixels::swap_rb(dst, &rgba[i * row..(i + 1) * row], true),
+    );
     out
 }
 
@@ -68,6 +70,16 @@ mod tests {
         assert_eq!(u16::from_le_bytes(bmp[28..30].try_into().unwrap()), 32);
         assert_eq!(u32::from_le_bytes(bmp[30..34].try_into().unwrap()), 3);
         assert_eq!(&bmp[HEADER_LEN..], &[10, 20, 30, 255, 40, 50, 60, 255]);
+    }
+
+    #[test]
+    fn pixel_data_starts_on_a_word_boundary() {
+        // The overlay reads the pixels as 32-bit words straight out of the response body.
+        assert_eq!(HEADER_LEN % 4, 0);
+        assert_eq!(HEADER_LEN, 68);
+        let bmp = from_rgba(1, 1, &[1, 2, 3, 4]);
+        assert_eq!(&bmp[66..68], &[0, 0], "padding after the masks");
+        assert_eq!(&bmp[68..], &[3, 2, 1, 255]);
     }
 
     #[test]

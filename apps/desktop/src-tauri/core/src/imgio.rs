@@ -44,6 +44,19 @@ fn limits() -> Limits {
     l
 }
 
+/// The same size limits `decode_limited` applies, for callers that only read an image header.
+pub fn check_dimensions(w: u32, h: u32) -> Result<(), String> {
+    if w == 0 || h == 0 || w > MAX_DIMENSION || h > MAX_DIMENSION {
+        return Err(format!(
+            "That image is too large ({w} x {h}). The limit is {MAX_DIMENSION} pixels per side."
+        ));
+    }
+    if u64::from(w) * u64::from(h) > MAX_PIXELS {
+        return Err("That image has too many pixels (limit 120 megapixels).".to_string());
+    }
+    Ok(())
+}
+
 /// Decode PNG/JPEG/WebP/BMP bytes, checking dimensions before allocating pixel memory.
 pub fn decode_limited(bytes: &[u8]) -> Result<Decoded, String> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
@@ -61,14 +74,7 @@ pub fn decode_limited(bytes: &[u8]) -> Result<Decoded, String> {
         .into_decoder()
         .map_err(|_| "That image could not be read.".to_string())?;
     let (w, h) = decoder.dimensions();
-    if w == 0 || h == 0 || w > MAX_DIMENSION || h > MAX_DIMENSION {
-        return Err(format!(
-            "That image is too large ({w} x {h}). The limit is {MAX_DIMENSION} pixels per side."
-        ));
-    }
-    if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        return Err("That image has too many pixels (limit 120 megapixels).".to_string());
-    }
+    check_dimensions(w, h)?;
     let img = image::DynamicImage::from_decoder(decoder)
         .map_err(|_| "That image could not be decoded.".to_string())?;
     let rgba = img.into_rgba8();
@@ -112,9 +118,9 @@ pub fn thumb_dims(w: u32, h: u32) -> (u32, u32) {
     )
 }
 
-/// True when any pixel is not fully opaque.
+/// True when any pixel is not fully opaque (see `pixels::has_transparency`).
 pub fn has_transparency(rgba: &[u8]) -> bool {
-    rgba.chunks_exact(4).any(|p| p[3] != 255)
+    crate::pixels::has_transparency(rgba)
 }
 
 /// Composite over white, dropping alpha (for formats that cannot carry it).

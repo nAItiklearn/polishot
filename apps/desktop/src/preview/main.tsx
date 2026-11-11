@@ -32,6 +32,16 @@ async function boot(): Promise<void> {
   } catch {
     // storage may be unavailable; the settings will set the theme in a moment
   }
+  // The faces are files inside the app. Waiting for them (at most half a second) means the first paint is already in
+  // the right type, instead of a stand-in that is swapped a moment later and moves everything.
+  await Promise.race([
+    Promise.all([
+      document.fonts.load('400 13px "Polishot Sans"'),
+      document.fonts.load('600 13px "Polishot Sans"'),
+      document.fonts.load('400 22px "Polishot Serif"'),
+    ]),
+    new Promise((resolve) => window.setTimeout(resolve, 500)),
+  ]).catch(() => undefined);
   if (import.meta.env.DEV) (window as unknown as { __polishotApp: unknown }).__polishotApp = { editor: getEditor() };
   const root = document.getElementById('root');
   if (root) {

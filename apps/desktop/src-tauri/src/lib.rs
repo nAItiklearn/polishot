@@ -35,7 +35,7 @@ use crate::history::History;
 use crate::jobs::{OcrJobs, WorkerPool};
 use crate::license::{CredentialStore, LicenseStatus};
 use crate::paths::Paths;
-use crate::session::SingleFlight;
+use crate::session::{AckGate, SingleFlight};
 use crate::state::{AppState, FrameFormat};
 use crate::store::CaptureStore;
 
@@ -90,6 +90,7 @@ fn build_state(app: &tauri::AppHandle) -> Result<AppState, String> {
         finalize_pool: WorkerPool::new("finalize", 2, 32, false),
         ocr_pool: WorkerPool::new("ocr", 2, 32, true),
         start_flight: SingleFlight::new(),
+        preview_gate: AckGate::new(),
         settings_lock: Mutex::new(()),
         license: Mutex::new(LicenseStatus::unlicensed()),
         warnings: Mutex::new(warnings),
@@ -165,6 +166,7 @@ pub fn run() {
             commands::overlay_set_mode,
             commands::capture_commit,
             commands::capture_cancel,
+            commands::preview_ready,
             commands::capture_start,
             commands::recording_stop,
             commands::qs_devices,

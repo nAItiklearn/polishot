@@ -113,7 +113,7 @@ fn serve(app: &AppHandle, label: &str, request: &Request<Vec<u8>>) -> Reply {
         );
     }
     let found = match route {
-        Route::Frame(n) => serve_frame(app, n),
+        Route::Frame(n) => serve_frame(app, n, query_nonce(request.uri().query())),
         Route::Capture(id) => serve_capture(app, id),
         Route::History(id) => serve_png_file(app, id, false),
         Route::Thumb(id) => serve_png_file(app, id, true),
@@ -127,17 +127,33 @@ fn serve(app: &AppHandle, label: &str, request: &Request<Vec<u8>>) -> Reply {
     }
 }
 
+/// The `v=<nonce>` value of a frame URL.
+fn query_nonce(query: Option<&str>) -> Option<u64> {
+    query?
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("v="))
+        .and_then(|v| v.parse().ok())
+}
+
 type Found = Option<(&'static str, &'static str, Vec<u8>)>;
 
 const NO_STORE: &str = "no-store";
 const IMMUTABLE: &str = "private, max-age=31536000, immutable";
 
-fn serve_frame(app: &AppHandle, monitor: usize) -> Found {
+/// The frozen frame of a monitor. The overlay asks for it the moment it is armed, usually while
+/// the screen is still being grabbed, so this waits (on a blocking thread) until the grab is done.
+/// `nonce` (the `v` query value), when given, must belong to the current session.
+fn serve_frame(app: &AppHandle, monitor: usize, nonce: Option<u64>) -> Found {
     let st = state(app);
-    let frame = {
+    let slot = {
         let guard = st.session.lock().ok()?;
-        guard.as_ref()?.frames.get(monitor)?.clone()
+        let session = guard.as_ref()?;
+        if nonce.is_some_and(|n| n != session.nonce) {
+            return None; // a request for an older capture
+        }
+        session.frames.get(monitor)?.clone()
     };
+    let frame = slot.wait(crate::capture::FRAME_WAIT).ok()?;
     match st.frame_format {
         FrameFormat::Bmp => Some(("image/bmp", NO_STORE, frame.buf.clone())),
         FrameFormat::Png => {

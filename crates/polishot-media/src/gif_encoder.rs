@@ -6,11 +6,12 @@
 //! `gif` crate. No transparency is used and gifski (AGPL) is not involved.
 
 use crate::frame::{pixels_differ, Frame, FrameError};
-use crate::scale::{downscale_box, target_size};
+use crate::scale::{downscale_box_threads, target_size};
 use color_quant::NeuQuant;
 use std::borrow::Cow;
 use std::fmt;
 use std::io::Write;
+use std::thread::JoinHandle;
 
 /// Consecutive frames whose changed-pixel fraction is not above this are merged.
 const DUPLICATE_THRESHOLD: f32 = 0.0;
@@ -130,16 +131,40 @@ pub struct GifEncoder<W: Write> {
     pending: Option<Pending>,
     /// Number of input frames seen, duplicates included.
     ticks: u64,
+    /// GIF frames committed so far (compression may still be running for the newest).
     written: u32,
     quantizer: Quantizer,
+    /// Worker threads for the per-frame work (1 = everything runs on the calling thread).
+    threads: usize,
+    /// The previous frame, being compressed on another thread while the next one is prepared.
+    compressing: Option<JoinHandle<gif::Frame<'static>>>,
+}
+
+/// Threads used by [`GifEncoder::new`]: the machine's cores, at most 4 (the work is memory-bound,
+/// and the rest of the app needs the other cores while it records).
+fn default_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get().min(4))
 }
 
 impl<W: Write> GifEncoder<W> {
     /// Creates an encoder. Nothing is written until the first frame arrives (the GIF header needs
     /// the final frame size). `fps` and `quality` are clamped to their valid ranges.
+    ///
+    /// Scaling and palette mapping of each frame run on several threads, and the compression of
+    /// one frame overlaps the preparation of the next. The output is byte-for-byte the same as
+    /// with a single thread; use [`GifEncoder::with_threads`] to choose.
     #[must_use]
     pub fn new(writer: W, opts: GifOptions) -> Self {
+        Self::with_threads(writer, opts, default_threads())
+    }
+
+    /// Like [`GifEncoder::new`] with an explicit number of worker threads. `1` does everything
+    /// on the calling thread.
+    #[must_use]
+    pub fn with_threads(writer: W, opts: GifOptions, threads: usize) -> Self {
         GifEncoder {
+            threads: threads.clamp(1, 16),
+            compressing: None,
             opts: GifOptions {
                 fps: opts.fps.clamp(1, 30),
                 quality: opts.quality.clamp(1, 30),
@@ -189,12 +214,13 @@ impl<W: Write> GifEncoder<W> {
             }
         }
 
-        let pixels = downscale_box(
+        let pixels = downscale_box_threads(
             &frame.rgba,
             frame.width as usize,
             frame.height as usize,
             usize::from(self.out_dims.0),
             usize::from(self.out_dims.1),
+            self.threads,
         );
         self.last_src.clear();
         self.last_src.extend_from_slice(&frame.rgba);
@@ -209,8 +235,8 @@ impl<W: Write> GifEncoder<W> {
         Ok(())
     }
 
-    /// Number of GIF frames written so far (the newest pending frame is not counted until the
-    /// next distinct frame or `finish`).
+    /// Number of GIF frames committed so far (the newest pending frame is not counted until the
+    /// next distinct frame or `finish`; the last committed one may still be compressing).
     #[must_use]
     pub fn frames_written(&self) -> u32 {
         self.written
@@ -228,6 +254,7 @@ impl<W: Write> GifEncoder<W> {
         if let Some(pending) = self.pending.take() {
             self.write_pending(pending)?;
         }
+        self.write_compressed()?;
         match self.encoder.take() {
             Some(encoder) => encoder.into_inner().map_err(enc_err),
             None => Err(GifError::NoFrames),
@@ -243,17 +270,48 @@ impl<W: Write> GifEncoder<W> {
         u16::try_from(delay.clamp(2, u64::from(u16::MAX))).unwrap_or(u16::MAX)
     }
 
+    /// Quantise `pending` (in order: the palette depends on the frames before it), then hand
+    /// its compression to another thread. The previous frame, whose compression had a whole frame
+    /// of time to finish, is written first, so frames reach the file in order.
     fn write_pending(&mut self, pending: Pending) -> Result<(), GifError> {
         let delay = self.delay_cs(pending.start, pending.end);
-        let (palette, indices) = self.quantizer.quantize(&pending.pixels);
-        let frame = gif::Frame {
-            delay,
-            width: self.out_dims.0,
-            height: self.out_dims.1,
-            palette: Some(palette),
-            buffer: Cow::Owned(indices),
-            ..gif::Frame::default()
+        let (palette, indices) = self.quantizer.quantize(&pending.pixels, self.threads);
+        let (width, height) = self.out_dims;
+        let compress = move || {
+            let mut frame = gif::Frame {
+                delay,
+                width,
+                height,
+                palette: Some(palette),
+                buffer: Cow::Owned(indices),
+                ..gif::Frame::default()
+            };
+            frame.make_lzw_pre_encoded();
+            frame
         };
+        self.write_compressed()?;
+        self.written += 1;
+        if self.threads > 1 {
+            self.compressing = Some(std::thread::spawn(compress));
+            Ok(())
+        } else {
+            self.write_encoded(&compress())
+        }
+    }
+
+    /// Wait for the frame being compressed (if any) and write it.
+    fn write_compressed(&mut self) -> Result<(), GifError> {
+        let Some(handle) = self.compressing.take() else {
+            return Ok(());
+        };
+        let frame = handle
+            .join()
+            .map_err(|_| GifError::Encoding("a compression thread panicked".into()))?;
+        self.write_encoded(&frame)
+    }
+
+    /// Write an already compressed frame, starting the GIF (header) on the first one.
+    fn write_encoded(&mut self, frame: &gif::Frame<'_>) -> Result<(), GifError> {
         let encoder = match self.encoder.as_mut() {
             Some(encoder) => encoder,
             None => {
@@ -269,9 +327,7 @@ impl<W: Write> GifEncoder<W> {
                 self.encoder.insert(encoder)
             }
         };
-        encoder.write_frame(&frame).map_err(enc_err)?;
-        self.written += 1;
-        Ok(())
+        encoder.write_lzw_pre_encoded_frame(frame).map_err(enc_err)
     }
 }
 
@@ -330,9 +386,13 @@ struct Quantizer {
     quality: i32,
     net: Option<NeuQuant>,
     palette: Vec<u8>,
-    cache: ColorCache,
+    /// One colour cache per mapping thread (the first also serves the palette-fit sample).
+    caches: Vec<ColorCache>,
     baseline: PaletteError,
 }
+
+/// Frames with fewer pixels than this are mapped on one thread.
+const PAR_MIN_PIXELS: usize = 1 << 16;
 
 impl Quantizer {
     fn new(quality: u8) -> Self {
@@ -340,18 +400,22 @@ impl Quantizer {
             quality: i32::from(quality.clamp(1, 30)),
             net: None,
             palette: Vec::new(),
-            cache: ColorCache::new(),
+            caches: vec![ColorCache::new()],
             baseline: PaletteError::default(),
         }
     }
 
-    fn quantize(&mut self, rgba: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    /// Palette and per-pixel indices for `rgba`. Which palette is used depends on the frames
+    /// quantised before (see the type docs), so frames must arrive in order; mapping the pixels to
+    /// palette entries, the bulk of the work, is split into bands over `threads` threads and gives
+    /// the same indices for any thread count.
+    fn quantize(&mut self, rgba: &[u8], threads: usize) -> (Vec<u8>, Vec<u8>) {
         if let Some(exact) = exact_palette(rgba) {
             return exact;
         }
         let reusable = match self.net.as_ref() {
             Some(net) => {
-                let err = sample_error(net, &mut self.cache, &self.palette, rgba);
+                let err = sample_error(net, &mut self.caches[0], &self.palette, rgba);
                 accepts(self.baseline, err)
             }
             None => false,
@@ -359,17 +423,47 @@ impl Quantizer {
         if !reusable {
             let net = NeuQuant::new(self.quality, 256, rgba);
             self.palette = net.color_map_rgb();
-            self.cache.reset();
-            self.baseline = sample_error(&net, &mut self.cache, &self.palette, rgba);
+            for cache in &mut self.caches {
+                cache.reset();
+            }
+            self.baseline = sample_error(&net, &mut self.caches[0], &self.palette, rgba);
             self.net = Some(net);
         }
         let Some(net) = self.net.as_ref() else {
             return (Vec::new(), Vec::new());
         };
-        let indices = rgba
-            .chunks_exact(4)
-            .map(|px| self.cache.index(net, px))
-            .collect();
+        let pixels = rgba.len() / 4;
+        let bands = if pixels < PAR_MIN_PIXELS {
+            1
+        } else {
+            threads.clamp(1, 16)
+        };
+        while self.caches.len() < bands {
+            // A new cache must agree with the current palette: fresh caches are empty, so it does.
+            self.caches.push(ColorCache::new());
+        }
+        let mut indices = vec![0u8; pixels];
+        if bands == 1 {
+            let cache = &mut self.caches[0];
+            for (out, px) in indices.iter_mut().zip(rgba.chunks_exact(4)) {
+                *out = cache.index(net, px);
+            }
+        } else {
+            let band_px = pixels.div_ceil(bands);
+            std::thread::scope(|scope| {
+                let work = indices
+                    .chunks_mut(band_px)
+                    .zip(rgba.chunks(band_px * 4))
+                    .zip(self.caches.iter_mut());
+                for ((out, px_band), cache) in work {
+                    scope.spawn(move || {
+                        for (o, px) in out.iter_mut().zip(px_band.chunks_exact(4)) {
+                            *o = cache.index(net, px);
+                        }
+                    });
+                }
+            });
+        }
         (self.palette.clone(), indices)
     }
 }
@@ -509,6 +603,90 @@ mod tests {
         }
         px.extend_from_slice(&[1, 2, 3, 255]);
         assert!(exact_palette(&px).is_none(), "257th colour overflows");
+    }
+
+    /// Frames with plenty of colours (so NeuQuant trains and reuses palettes) that scroll, with a
+    /// still stretch in the middle (merged duplicates).
+    fn busy_frames(count: usize, w: u32, h: u32) -> Vec<Frame> {
+        let mut x = 0x9E37_79B9u32;
+        let mut noise = move || {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            x
+        };
+        let base: Vec<u8> = (0..(w as usize) * (h as usize * 3) * 4)
+            .map(|i| {
+                let n = noise();
+                match i % 4 {
+                    0 => ((i / 4 % w as usize) as u32 * 255 / w + (n >> 28)) as u8,
+                    1 => ((i / 4 / w as usize) as u32 * 255 / (h * 3) + (n >> 29)) as u8,
+                    2 => (n >> 12) as u8 / 4 + 100,
+                    _ => 255,
+                }
+            })
+            .collect();
+        (0..count)
+            .map(|i| {
+                let shift = if (4..7).contains(&i) { 4 } else { i } * 5;
+                let start = (shift % (h as usize * 2)) * w as usize * 4;
+                Frame {
+                    width: w,
+                    height: h,
+                    rgba: base[start..start + (w * h * 4) as usize].to_vec(),
+                }
+            })
+            .collect()
+    }
+
+    fn encode_with(threads: usize, frames: &[Frame], max_width: u32) -> (Vec<u8>, u32) {
+        let mut enc = GifEncoder::with_threads(
+            Vec::new(),
+            GifOptions {
+                fps: 15,
+                max_width,
+                ..GifOptions::default()
+            },
+            threads,
+        );
+        for f in frames {
+            enc.add_frame(f).unwrap();
+        }
+        let committed = enc.frames_written();
+        (enc.finish().unwrap(), committed)
+    }
+
+    #[test]
+    fn threads_change_the_speed_not_the_bytes() {
+        // 400 x 300 scaled to 300 wide is big enough for the threaded scaler and mapper.
+        let frames = busy_frames(10, 400, 300);
+        let (one, committed_one) = encode_with(1, &frames, 300);
+        assert_eq!(&one[..6], b"GIF89a");
+        for threads in [2usize, 4, 8] {
+            let (many, committed) = encode_with(threads, &frames, 300);
+            assert!(many == one, "{threads} threads produced different bytes");
+            assert_eq!(committed, committed_one);
+        }
+        // Without scaling too (400 x 300 source kept whole).
+        let (one, _) = encode_with(1, &frames, 0);
+        let (four, _) = encode_with(4, &frames, 0);
+        assert!(four == one);
+    }
+
+    #[test]
+    fn the_threaded_encoder_writes_every_frame_in_order() {
+        let frames = busy_frames(8, 400, 300);
+        let (bytes, _) = encode_with(4, &frames, 0);
+        let mut decoder = gif::DecodeOptions::new()
+            .read_info(std::io::Cursor::new(&bytes))
+            .expect("a valid GIF");
+        let mut decoded = 0;
+        while let Some(frame) = decoder.read_next_frame().expect("a valid frame") {
+            assert_eq!((frame.width, frame.height), (400, 300));
+            decoded += 1;
+        }
+        // Frames 4..7 are identical and merge into one, so 8 inputs make 6 GIF frames.
+        assert_eq!(decoded, 6);
     }
 
     #[test]

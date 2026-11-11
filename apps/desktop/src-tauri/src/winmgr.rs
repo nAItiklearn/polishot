@@ -2,12 +2,13 @@
 //! `overlay-<n>` per monitor, and `pin-<id>` windows.
 
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 
 use crate::routes::{overlay_index, overlay_label};
 use crate::state::state;
+use crate::store::CaptureMeta;
 use crate::tlog;
 use crate::winutil::{self, MonitorInfo};
 
@@ -77,6 +78,39 @@ pub fn create_preview(app: &AppHandle) -> Result<WebviewWindow, String> {
         }
     });
     Ok(win)
+}
+
+/// How long a commit holds the frozen overlay for the preview's acknowledgement.
+const PREVIEW_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Tell the preview about a new capture and, if `show`, bring its window up.
+///
+/// The event goes out first, so the preview starts loading the image while its window is still
+/// hidden. When the UI has shown it acknowledges captures (`preview_ready`), the window is raised
+/// only once it has acknowledged this one (or 400 ms have passed), and the caller keeps the
+/// overlay's frozen frame on screen meanwhile: the user sees the frozen screen, then the finished
+/// preview, never an empty card. A UI that does not acknowledge gets the previous behaviour: the
+/// window is shown right after the event.
+pub fn announce_capture(app: &AppHandle, meta: &CaptureMeta, show: bool) {
+    let gate = &state(app).preview_gate;
+    let wait = show && gate.supported();
+    if wait {
+        gate.begin(&meta.id);
+    }
+    let _ = app.emit_to(PREVIEW, "capture:ready", meta);
+    if !show {
+        return;
+    }
+    if wait {
+        let t = std::time::Instant::now();
+        let acked = gate.wait(PREVIEW_ACK_TIMEOUT);
+        tlog!(
+            "preview {} after {:.1} ms",
+            if acked { "ready" } else { "did not answer" },
+            crate::timing::ms(t)
+        );
+    }
+    show_preview(app);
 }
 
 pub fn show_preview(app: &AppHandle) {
