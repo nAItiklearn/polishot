@@ -42,7 +42,7 @@
       "width": 1600,
       "height": 1000,
       "alt": "A Windows notification that an image arrived from a phone, next to the phone's send screen.",
-      "show": "A real composite of two captures side by side: the Windows quick-send 'Received from phone' notification with the image preview, and the Android Polishot screen sending that image, both showing the same six-digit pairing code."
+      "show": "Until real device captures exist (needs a CI installer and a phone), an illustration built from the real desktop window and the Android strings/colours: the Windows quick-send 'Received from phone' notification with the image preview, and the Android Polishot screen sending that image, both showing the same six-digit pairing code."
     }
   }
 }

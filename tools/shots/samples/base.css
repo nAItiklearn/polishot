@@ -1,1 +1,118 @@
-.
+/*
+ * Shared styles for the sample "captures" in tools/shots/samples/*.html.
+ *
+ * Each sample is a fictional app window sitting on a flat desktop colour, laid out like a region capture
+ * that was dragged a little too wide: the margins on the four sides are deliberately uneven so that
+ * Polishot's auto-balance has something to trim. Everything on screen is invented (names, e-mail addresses on
+ * example.com, documentation IP ranges, obviously fake keys).
+ *
+ * samples/render.ts opens each page at a fixed viewport with deviceScaleFactor 2, so the PNG is a crisp
+ * "retina" capture, and reads the position of every word from the DOM to produce OCR-style word boxes.
+ */
+@font-face {
+  font-family: 'Geist';
+  src: url('fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: block;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Geist', 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink, #1c1b19);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.mono {
+  font-family: 'Geist Mono', 'Cascadia Mono', Consolas, monospace;
+}
+
+/* The desktop behind the window. A flat colour, as a plain wallpaper would be. */
+.desk {
+  position: absolute;
+  inset: 0;
+  background: var(--desk, #262b36);
+}
+
+/* The app window. --ml/--mt/--mr/--mb are the uneven margins of the capture region. */
+.win {
+  position: absolute;
+  left: var(--ml);
+  top: var(--mt);
+  right: var(--mr);
+  bottom: var(--mb);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--win-radius, 8px);
+  background: var(--win-bg, #fff);
+  box-shadow: inset 0 0 0 1px var(--win-edge, rgba(0, 0, 0, 0.14));
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 36px;
+  padding-left: 14px;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--title-ink, #4a4843);
+  background: var(--title-bg, transparent);
+}
+
+.titlebar .grow {
+  flex: 1;
+}
+
+.wincontrols {
+  display: flex;
+  height: 100%;
+}
+
+.wincontrols i {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+}
+
+.wincontrols svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+svg.ic {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

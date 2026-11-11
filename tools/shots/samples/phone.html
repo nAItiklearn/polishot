@@ -1,0 +1,288 @@
+<!doctype html>
+<!--
+  Sample capture: a phone screenshot of a fictional banking app ("Meridian"), the image that the quick-send
+  scene "sends" from the phone to the PC. A phone screenshot is exactly the screen, so no desktop margins.
+  Capture 390 x 844 CSS px, rendered at 3x like a real phone. No sensitive data on screen.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>phone sample</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      :root {
+        --ink: #14201e;
+        --ink-2: #5a6764;
+        --ink-3: #8c9894;
+        --line: #e4e8e5;
+        --teal: #0d9488;
+      }
+      body {
+        background: #f4f5f2;
+        color: var(--ink);
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+        padding: 6px 26px 0;
+        font-size: 15px;
+        font-weight: 620;
+      }
+      .status .icons {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .status svg {
+        height: 12px;
+        fill: currentColor;
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 22px 6px;
+      }
+      .avatar {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #f0a37c, #d9663f);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 650;
+      }
+      .head small {
+        display: block;
+        color: var(--ink-3);
+        font-size: 12.5px;
+      }
+      .head b {
+        font-size: 17px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .bell {
+        margin-left: auto;
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .bell svg {
+        width: 19px;
+        height: 19px;
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .balance {
+        margin: 14px 18px 0;
+        padding: 20px 22px 22px;
+        border-radius: 24px;
+        color: #fff;
+        background: radial-gradient(120% 120% at 0% 0%, #19b3a3 0%, #0d9488 42%, #0b6b63 100%);
+        box-shadow: 0 18px 30px -18px rgba(13, 148, 136, 0.7);
+      }
+      .balance small {
+        font-size: 13px;
+        opacity: 0.85;
+      }
+      .balance strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 38px;
+        font-weight: 650;
+        letter-spacing: -0.03em;
+      }
+      .balance .delta {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 10px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.2);
+        font-size: 12.5px;
+        font-weight: 560;
+      }
+      .actions {
+        display: flex;
+        justify-content: space-between;
+        padding: 20px 28px 0;
+      }
+      .actions div {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--ink-2);
+      }
+      .actions i {
+        display: grid;
+        place-items: center;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .actions svg {
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: var(--teal);
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .card {
+        margin: 20px 18px 0;
+        padding: 16px 18px 14px;
+        border-radius: 20px;
+        background: #fff;
+        box-shadow: 0 0 0 1px var(--line);
+      }
+      .card h3 {
+        display: flex;
+        justify-content: space-between;
+        font-size: 14.5px;
+        font-weight: 620;
+      }
+      .card h3 span {
+        color: var(--ink-3);
+        font-size: 12px;
+        font-weight: 400;
+      }
+      .bars {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        height: 92px;
+        margin-top: 14px;
+      }
+      .bars div {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        height: 100%;
+        font-size: 11px;
+        color: var(--ink-3);
+      }
+      .bars i {
+        width: 28px;
+        border-radius: 8px;
+        background: #cfe9e5;
+      }
+      .bars .on i {
+        background: var(--teal);
+      }
+      .bars .on {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .tx {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 0;
+        border-top: 1px solid #eef0ed;
+        font-size: 14px;
+      }
+      .tx:first-of-type {
+        margin-top: 8px;
+      }
+      .tx i {
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        font-style: normal;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .tx small {
+        display: block;
+        color: var(--ink-3);
+        font-size: 12px;
+      }
+      .tx b {
+        margin-left: auto;
+        font-weight: 620;
+      }
+      .tx b.pos {
+        color: #0b7f73;
+      }
+      .home {
+        position: absolute;
+        left: 50%;
+        bottom: 9px;
+        width: 134px;
+        height: 5px;
+        margin-left: -67px;
+        border-radius: 99px;
+        background: #14201e;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="status">
+      <span>9:42</span>
+      <span class="icons" data-noocr>
+        <svg viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" /><rect x="5" y="5" width="3" height="7" rx="1" /><rect x="10" y="2.5" width="3" height="9.5" rx="1" /><rect x="15" y="0" width="3" height="12" rx="1" /></svg>
+        <svg viewBox="0 0 26 12"><rect x="0.5" y="0.5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity="0.5" /><rect x="2.5" y="2.5" width="16" height="7" rx="2" /><rect x="24" y="4" width="2" height="4" rx="1" /></svg>
+      </span>
+    </div>
+    <div class="head">
+      <span class="avatar" data-noocr>AR</span>
+      <div><small>Good evening</small><b>Alex</b></div>
+      <span class="bell" data-noocr><svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 21h4" /></svg></span>
+    </div>
+
+    <section class="balance">
+      <small>Total balance</small>
+      <strong>$12,480.20</strong>
+      <span class="delta">+$1,240.00 this month</span>
+    </section>
+
+    <section class="actions">
+      <div><i><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></svg></i>Send</div>
+      <div><i><svg viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6" /></svg></i>Request</div>
+      <div><i><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M3 10h18" /></svg></i>Cards</div>
+      <div><i><svg viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18.5" cy="12" r="1.2" /></svg></i>More</div>
+    </section>
+
+    <section class="card">
+      <h3>This week <span>$612 spent</span></h3>
+      <div class="bars">
+        <div><i style="height: 38%"></i>Mon</div>
+        <div><i style="height: 62%"></i>Tue</div>
+        <div><i style="height: 30%"></i>Wed</div>
+        <div class="on"><i style="height: 92%"></i>Thu</div>
+        <div><i style="height: 48%"></i>Fri</div>
+        <div><i style="height: 70%"></i>Sat</div>
+        <div><i style="height: 24%"></i>Sun</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Recent</h3>
+      <div class="tx"><i style="background: #fde8dc; color: #b4491f">CL</i><span>Coffee Lab<small>Food and drink</small></span><b>-$6.40</b></div>
+      <div class="tx"><i style="background: #e3e9fd; color: #3b4fb8">SR</i><span>Studio rent<small>Housing</small></span><b>-$890.00</b></div>
+      <div class="tx"><i style="background: #d6f0ec; color: #0b6f66">PC</i><span>Refund from Pine &amp; Co<small>Shopping</small></span><b class="pos">+$48.00</b></div>
+    </section>
+    <i class="home" data-noocr></i>
+  </body>
+</html>

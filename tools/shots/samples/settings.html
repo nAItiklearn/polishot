@@ -1,0 +1,386 @@
+<!doctype html>
+<!--
+  Sample capture: "Orbit Console" account settings (a fictional app). Used for the hero before/after pair.
+  Capture region 1200 x 900 CSS px; the window is inset by uneven margins so there is a desktop border to trim.
+  Sensitive items on screen: one e-mail address and one (fake, example) secret key.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>settings sample</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      :root {
+        --desk: #8ba3bb;
+        --ml: 26px;
+        --mt: 14px;
+        --mr: 38px;
+        --mb: 22px;
+        --win-bg: #fbfaf8;
+        --win-radius: 0px;
+        --win-edge: rgba(24, 22, 18, 0.16);
+        --ink: #1d1c19;
+        --ink-2: #5e5c55;
+        --ink-3: #8a877e;
+        --line: #e7e4dc;
+        --accent: #4f46e5;
+      }
+      .titlebar {
+        background: #1d1c19;
+        border-bottom: 1px solid #2d2b27;
+        color: #b9b5ab;
+      }
+      .titlebar .logo {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: conic-gradient(from 210deg, #4f46e5, #7c8bff, #4f46e5);
+        box-shadow: inset 0 0 0 3px #1d1c19, 0 0 0 1px rgba(124, 139, 255, 0.5);
+      }
+      .layout {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .side {
+        flex: none;
+        width: 224px;
+        padding: 16px 12px;
+        background: #1d1c19;
+        border-right: 1px solid #2d2b27;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .ws {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 8px 14px;
+        font-weight: 600;
+        font-size: 13.5px;
+        color: #f4f2ed;
+      }
+      .ws b {
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        background: #4f46e5;
+        color: #fff;
+        font-size: 12px;
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 34px;
+        padding: 0 10px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        color: #a8a49a;
+      }
+      .nav.on {
+        background: #34322d;
+        color: #f4f2ed;
+        font-weight: 550;
+      }
+      .nav .pill {
+        margin-left: auto;
+        padding: 1px 7px;
+        border-radius: 99px;
+        background: #34322d;
+        color: #bdb9ae;
+        font-size: 11px;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .me {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 8px 0;
+        border-top: 1px solid #34322d;
+        font-size: 13px;
+        color: #e9e6df;
+      }
+      .avatar {
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #f0a37c, #d9663f);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .me small {
+        display: block;
+        color: #8d897f;
+        font-size: 11.5px;
+      }
+
+      .main {
+        flex: 1;
+        min-width: 0;
+        padding: 30px 44px 0;
+      }
+      .crumb {
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      h1 {
+        margin-top: 8px;
+        font-size: 28px;
+        letter-spacing: -0.02em;
+        font-weight: 620;
+      }
+      .sub {
+        margin-top: 4px;
+        color: var(--ink-2);
+        font-size: 14px;
+      }
+      .tabs {
+        display: flex;
+        gap: 24px;
+        margin-top: 20px;
+        border-bottom: 1px solid var(--line);
+        font-size: 13.5px;
+        color: var(--ink-3);
+      }
+      .tabs span {
+        padding: 0 0 11px;
+        margin-bottom: -1px;
+      }
+      .tabs .on {
+        color: var(--ink);
+        font-weight: 550;
+        border-bottom: 2px solid var(--ink);
+      }
+      .card {
+        margin-top: 20px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(30, 28, 22, 0.04);
+      }
+      .card header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding: 16px 22px 0;
+      }
+      .card h2 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .card header p {
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px 24px;
+        padding: 16px 22px 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 38px;
+        padding: 0 12px;
+        border: 1px solid #dedbd2;
+        border-radius: 8px;
+        background: #fff;
+        font-size: 14px;
+      }
+      .badge {
+        margin-left: auto;
+        padding: 2px 8px;
+        border-radius: 99px;
+        background: #e4f3ea;
+        color: #1f7a45;
+        font-size: 11.5px;
+        font-weight: 550;
+      }
+      .keyrow {
+        display: flex;
+        gap: 10px;
+        padding: 16px 22px 8px;
+      }
+      .keyrow .field {
+        flex: 1;
+        background: #f8f7f3;
+        font-size: 13.5px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 38px;
+        padding: 0 14px;
+        border: 1px solid #dedbd2;
+        border-radius: 8px;
+        background: #fff;
+        font-size: 13.5px;
+        font-weight: 520;
+      }
+      .btn.dark {
+        background: #1d1c19;
+        border-color: #1d1c19;
+        color: #fbfaf8;
+      }
+      .meta {
+        padding: 0 22px 18px;
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .toggles {
+        padding: 6px 22px 8px;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 0;
+        border-top: 1px solid #f0eee7;
+        font-size: 14px;
+      }
+      .toggle:first-child {
+        border-top: 0;
+      }
+      .toggle small {
+        display: block;
+        color: var(--ink-3);
+        font-size: 12.5px;
+      }
+      .switch {
+        position: relative;
+        margin-left: auto;
+        width: 36px;
+        height: 21px;
+        border-radius: 99px;
+        background: #d8d5cb;
+      }
+      .switch::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 17px;
+        height: 17px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+      }
+      .switch.on {
+        background: #4f46e5;
+      }
+      .switch.on::after {
+        left: 17px;
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V11M12 20V4M19 20v-6M2 20h20" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .6 3.2 2.3 3.5 5.2" /></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" /><path d="m11 12 9-9M16 7l3 3" /></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></symbol>
+      <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" /></symbol>
+    </svg>
+
+    <div class="desk"></div>
+    <div class="win">
+      <div class="titlebar">
+        <span class="logo"></span>
+        <span>Orbit Console</span>
+        <span class="grow"></span>
+        <div class="wincontrols">
+          <i><svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" /></svg></i>
+        </div>
+      </div>
+      <div class="layout">
+        <aside class="side">
+          <div class="ws"><b>R</b><span>Rivera Studio</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-home" /></svg><span>Overview</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-folder" /></svg><span>Projects</span><span class="pill">12</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-chart" /></svg><span>Usage</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-users" /></svg><span>Team</span></div>
+          <div class="nav on"><svg class="ic"><use href="#i-settings" /></svg><span>Settings</span></div>
+          <div class="spacer"></div>
+          <div class="me">
+            <span class="avatar" data-noocr>AR</span>
+            <span>Alex Rivera<small>Owner</small></span>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="crumb">Rivera Studio / Settings</div>
+          <h1>Account settings</h1>
+          <p class="sub">Manage your profile, API access and notifications.</p>
+          <nav class="tabs">
+            <span class="on">Profile</span><span>Security</span><span>API access</span><span>Notifications</span><span>Billing</span>
+          </nav>
+
+          <section class="card">
+            <header>
+              <h2>Profile</h2>
+              <p>Shown to teammates in your workspace.</p>
+            </header>
+            <div class="grid">
+              <div><label>Full name</label><div class="field">Alex Rivera</div></div>
+              <div>
+                <label>Email address</label>
+                <div class="field"><span>alex.rivera@example.com</span><span class="badge">Verified</span></div>
+              </div>
+              <div><label>Time zone</label><div class="field">Europe/Lisbon (GMT+0)</div></div>
+              <div><label>Language</label><div class="field">English (US)</div></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <header>
+              <h2>API access</h2>
+              <p>Use this key to authenticate requests from your servers.</p>
+            </header>
+            <div class="keyrow">
+              <div class="field mono"><svg class="ic" style="color: #8a877e"><use href="#i-key" /></svg><span>sk_test_EXAMPLEKEYNOTREAL0123456789</span></div>
+              <div class="btn"><svg class="ic"><use href="#i-copy" /></svg>Copy</div>
+              <div class="btn dark"><svg class="ic"><use href="#i-rotate" /></svg>Roll key</div>
+            </div>
+            <p class="meta">Created Oct 12, 2026 &middot; Last used 4 minutes ago from Lisbon, PT</p>
+          </section>
+
+          <section class="card">
+            <header>
+              <h2>Notifications</h2>
+              <p>Choose what reaches your inbox.</p>
+            </header>
+            <div class="toggles">
+              <div class="toggle"><span>Failed deploys<small>Tell me right away when a production deploy fails.</small></span><i class="switch on"></i></div>
+              <div class="toggle"><span>Weekly digest<small>A Monday summary of usage and spend.</small></span><i class="switch"></i></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

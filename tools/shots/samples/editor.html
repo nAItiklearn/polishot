@@ -1,0 +1,402 @@
+<!doctype html>
+<!--
+  Sample capture: a code editor ("Forge", a fictional editor) with a TypeScript file open. No sensitive data.
+  Capture region 980 x 744 CSS px; uneven desktop margins on all four sides for auto-balance to trim.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>editor sample</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      :root {
+        --desk: #c9ccd4;
+        --ml: 16px;
+        --mt: 26px;
+        --mr: 44px;
+        --mb: 16px;
+        --win-bg: #1a1b26;
+        --win-radius: 0px;
+        --win-edge: rgba(255, 255, 255, 0.09);
+        --ink: #c0caf5;
+        --muted: #565f89;
+        --line: #232433;
+      }
+      body {
+        color: var(--ink);
+      }
+      .titlebar {
+        background: #16161e;
+        color: #7d86ad;
+        border-bottom: 1px solid #101017;
+      }
+      .titlebar .dots {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background: linear-gradient(135deg, #7aa2f7, #bb9af7);
+      }
+      .titlebar .center {
+        position: absolute;
+        left: 0;
+        right: 0;
+        text-align: center;
+        pointer-events: none;
+      }
+      .body {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .activity {
+        flex: none;
+        width: 52px;
+        padding-top: 10px;
+        background: #16161e;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        border-right: 1px solid #101017;
+      }
+      .activity .ai {
+        display: grid;
+        place-items: center;
+        width: 52px;
+        height: 46px;
+        color: #565f89;
+      }
+      .activity .ai.on {
+        color: #c0caf5;
+        box-shadow: inset 2px 0 0 #7aa2f7;
+      }
+      .activity svg.ic {
+        width: 22px;
+        height: 22px;
+        stroke-width: 1.5;
+      }
+      .explorer {
+        flex: none;
+        width: 200px;
+        background: #16161e;
+        border-right: 1px solid #101017;
+        font-size: 13px;
+        color: #9aa5ce;
+      }
+      .explorer h6 {
+        padding: 12px 18px 8px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        color: #565f89;
+      }
+      .tree div {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 25px;
+        padding-right: 12px;
+      }
+      .tree .d1 {
+        padding-left: 18px;
+      }
+      .tree .d2 {
+        padding-left: 32px;
+      }
+      .tree .d3 {
+        padding-left: 46px;
+      }
+      .tree .on {
+        background: #292e42;
+        color: #c0caf5;
+      }
+      .tree .chev {
+        width: 10px;
+        height: 10px;
+        stroke-width: 2;
+        color: #565f89;
+      }
+      .tree .file {
+        width: 14px;
+        height: 14px;
+        stroke-width: 1.4;
+        color: #565f89;
+      }
+      .tree .ts {
+        color: #7aa2f7;
+      }
+      .tree .git {
+        margin-left: auto;
+        color: #9ece6a;
+        font-size: 11px;
+      }
+      .editor {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        flex: none;
+        display: flex;
+        height: 38px;
+        background: #16161e;
+        font-size: 13px;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 18px;
+        color: #565f89;
+        border-right: 1px solid #101017;
+      }
+      .tab.on {
+        background: #1a1b26;
+        color: #c0caf5;
+        box-shadow: inset 0 2px 0 #7aa2f7;
+      }
+      .tab .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #e0af68;
+      }
+      .tab .ts {
+        color: #7aa2f7;
+        font-size: 10.5px;
+        font-weight: 700;
+      }
+      .crumbs {
+        flex: none;
+        height: 26px;
+        padding: 0 22px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #565f89;
+      }
+      .code {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        padding-top: 4px;
+        font-family: 'Geist Mono', monospace;
+        font-size: 13px;
+        line-height: 22px;
+      }
+      .ln {
+        position: absolute;
+        left: 0;
+        top: 4px;
+        width: 54px;
+        text-align: right;
+        color: #3b4261;
+        user-select: none;
+      }
+      .ln.cur {
+        color: #737aa2;
+      }
+      .lines {
+        margin-left: 76px;
+        white-space: pre;
+      }
+      .lines > div {
+        height: 22px;
+      }
+      .lines > div.cur {
+        margin-left: -76px;
+        padding-left: 76px;
+        background: #1f2133;
+        box-shadow: inset 0 0 0 0 #000;
+      }
+      .minimap {
+        position: absolute;
+        top: 4px;
+        right: 0;
+        width: 92px;
+        bottom: 0;
+        opacity: 0.55;
+        background: repeating-linear-gradient(to bottom, transparent 0 4px, rgba(122, 162, 247, 0.22) 4px 6px);
+        mask-image: linear-gradient(to right, transparent, #000 30%);
+      }
+      .k {
+        color: #bb9af7;
+      }
+      .s {
+        color: #9ece6a;
+      }
+      .f {
+        color: #7aa2f7;
+      }
+      .t {
+        color: #2ac3de;
+      }
+      .n {
+        color: #ff9e64;
+      }
+      .c {
+        color: #565f89;
+        font-style: italic;
+      }
+      .p {
+        color: #73daca;
+      }
+      .status {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        height: 26px;
+        padding: 0 14px;
+        background: #16161e;
+        border-top: 1px solid #101017;
+        font-size: 12px;
+        color: #7d86ad;
+      }
+      .status .branch {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #c0caf5;
+      }
+      .status .sp {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-files" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2.2" /><circle cx="6" cy="18.5" r="2.2" /><circle cx="18" cy="9" r="2.2" /><path d="M6 8v8M18 11.2c0 3.6-3 4.3-8 5.3" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" /></symbol>
+      <symbol id="i-blocks" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><path d="M16.5 3.5v7M13 7h7" /></symbol>
+      <symbol id="i-chev" viewBox="0 0 10 10"><path d="m3 2 3.5 3L3 8" /></symbol>
+    </svg>
+
+    <div class="desk"></div>
+    <div class="win">
+      <div class="titlebar" style="position: relative">
+        <span class="dots"></span>
+        <span class="center">uploadQueue.ts &mdash; orbit-api</span>
+        <span class="grow"></span>
+        <div class="wincontrols">
+          <i><svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" /></svg></i>
+        </div>
+      </div>
+      <div class="body">
+        <nav class="activity" data-noocr>
+          <div class="ai on"><svg class="ic"><use href="#i-files" /></svg></div>
+          <div class="ai"><svg class="ic"><use href="#i-search" /></svg></div>
+          <div class="ai"><svg class="ic"><use href="#i-branch" /></svg></div>
+          <div class="ai"><svg class="ic"><use href="#i-play" /></svg></div>
+          <div class="ai"><svg class="ic"><use href="#i-blocks" /></svg></div>
+        </nav>
+        <aside class="explorer">
+          <h6>EXPLORER</h6>
+          <div class="tree">
+            <div class="d1"><svg class="ic chev" viewBox="0 0 10 10" style="transform: rotate(90deg)"><use href="#i-chev" /></svg><span>orbit-api</span></div>
+            <div class="d2"><svg class="ic chev" viewBox="0 0 10 10" style="transform: rotate(90deg)"><use href="#i-chev" /></svg><span>src</span></div>
+            <div class="d3"><svg class="ic chev" viewBox="0 0 10 10"><use href="#i-chev" /></svg><span>routes</span></div>
+            <div class="d3"><svg class="ic chev" viewBox="0 0 10 10" style="transform: rotate(90deg)"><use href="#i-chev" /></svg><span>lib</span></div>
+            <div class="d3" style="padding-left: 62px"><svg class="ic file"><use href="#i-files" /></svg><span class="ts">retry.ts</span></div>
+            <div class="d3 on" style="padding-left: 62px"><svg class="ic file ts"><use href="#i-files" /></svg><span class="ts">uploadQueue.ts</span><span class="git">M</span></div>
+            <div class="d3" style="padding-left: 62px"><svg class="ic file"><use href="#i-files" /></svg><span class="ts">types.ts</span></div>
+            <div class="d2"><svg class="ic file"><use href="#i-files" /></svg><span class="ts">server.ts</span></div>
+            <div class="d1"><svg class="ic file"><use href="#i-files" /></svg><span>package.json</span></div>
+            <div class="d1"><svg class="ic file"><use href="#i-files" /></svg><span>tsconfig.json</span></div>
+            <div class="d1"><svg class="ic file"><use href="#i-files" /></svg><span>README.md</span></div>
+          </div>
+        </aside>
+        <section class="editor">
+          <div class="tabs">
+            <div class="tab"><span class="ts">TS</span><span>retry.ts</span></div>
+            <div class="tab on"><span class="ts">TS</span><span>uploadQueue.ts</span><span class="dot"></span></div>
+            <div class="tab"><span class="ts">TS</span><span>types.ts</span></div>
+          </div>
+          <div class="crumbs"><span>src</span><span>&rsaquo;</span><span>lib</span><span>&rsaquo;</span><span style="color: #9aa5ce">uploadQueue.ts</span></div>
+          <div class="code">
+            <div class="ln" id="ln" data-noocr></div>
+            <div class="lines" id="lines"></div>
+            
+          </div>
+        </section>
+      </div>
+      <div class="status">
+        <span class="branch"><svg class="ic" style="width: 13px; height: 13px"><use href="#i-branch" /></svg>main</span>
+        <span>0 errors</span>
+        <span class="sp"></span>
+        <span>Ln 22, Col 12</span>
+        <span>Spaces: 2</span>
+        <span>UTF-8</span>
+        <span>TypeScript</span>
+      </div>
+    </div>
+
+    <script>
+      const SRC = `import type { Upload, UploadResult } from './types';
+import { backoff, sleep } from './retry';
+
+const MAX_ATTEMPTS = 5;
+
+export class UploadQueue {
+  private active = 0;
+  private readonly pending: Upload[] = [];
+
+  /** Adds an upload; resolves once it has finally succeeded or failed. */
+  enqueue(upload: Upload): Promise<UploadResult> {
+    return new Promise((resolve, reject) => {
+      this.pending.push({ ...upload, resolve, reject });
+      void this.drain();
+    });
+  }
+
+  private async attempt(upload: Upload, n = 1): Promise<UploadResult> {
+    try {
+      return await this.send(upload);
+    } catch (err) {
+      if (n >= MAX_ATTEMPTS) throw err;
+      await sleep(backoff(n));
+      return this.attempt(upload, n + 1);
+    }
+  }
+}
+`.split('\n');
+      SRC.pop();
+      const KW = /^(import|from|export|class|const|let|private|readonly|constructor|return|new|if|throw|await|async|try|catch|finally|while|void|type)$/;
+      const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      function hl(line) {
+        const out = [];
+        const re = /(\/\*\*.*\*\/)|('[^']*')|(\b\d+\b)|([A-Za-z_$][\w$]*)|(\s+)|(.)/g;
+        let m;
+        let prev = '';
+        while ((m = re.exec(line))) {
+          const [t, cm, str, num, id] = m;
+          let cls = '';
+          if (cm) cls = 'c';
+          else if (str) cls = 's';
+          else if (num) cls = 'n';
+          else if (id) {
+            const next = line.slice(re.lastIndex).match(/^\s*(\(|<)/);
+            if (KW.test(id)) cls = 'k';
+            else if (/^[A-Z]/.test(id)) cls = 't';
+            else if (prev === '.' && next && next[1] === '(') cls = 'f';
+            else if (next && next[1] === '(') cls = 'f';
+            else if (prev === '.') cls = 'p';
+          }
+          if (!/^\s+$/.test(t)) prev = t.length === 1 && !id ? t : id ? 'id' : prev;
+          out.push(cls ? `<span class="${cls}">${esc(t)}</span>` : esc(t));
+        }
+        return out.join('');
+      }
+      const CUR = 21;
+      document.getElementById('lines').innerHTML = SRC.map((l, i) => `<div${i === CUR ? ' class="cur"' : ''}>${hl(l) || '&nbsp;'}</div>`).join('');
+      document.getElementById('ln').innerHTML = SRC.map((_, i) => `<div style="height:22px"${i === CUR ? ' class="cur"' : ''}>${i + 1}</div>`).join('');
+    </script>
+  </body>
+</html>

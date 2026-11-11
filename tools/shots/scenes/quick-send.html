@@ -1,0 +1,547 @@
+<!doctype html>
+<!--
+  Quick send scene (1600 x 1000 CSS px, rendered at 2x by shots/quickSend.ts).
+
+  The two devices of a quick-send pairing, side by side on cream paper: the PC (a Windows desktop with the
+  Polishot window, the pairing dialog and the "Received from" notification) and the phone (the Quick send screen
+  with the pairing dialog). Both devices show the same six-digit code, as docs/QUICKSEND.md section 8 requires.
+
+  Neither device can be captured for real on the machine that builds the site (the Tauri build needs MSVC, the
+  Android app needs a device), so:
+    - the Polishot window on the PC is a real screenshot of the desktop UI in mock mode (out/scene/pc-app.png),
+    - the phone screenshot in the notification is the phone sample (samples/out/phone.png),
+    - the pairing dialog, the Windows notification and the Android screen are laid out here with the copy from
+      apps/android/app/src/main/res/values/strings.xml and the colours of ui/theme/Theme.kt (dark scheme).
+  The code and device names below are invented.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>quick-send scene</title>
+    <style>
+      @font-face {
+        font-family: 'Geist';
+        src: url('../samples/fonts/Geist-Variable.woff2') format('woff2');
+        font-weight: 100 900;
+      }
+      @font-face {
+        font-family: 'Geist Mono';
+        src: url('../samples/fonts/GeistMono-Variable.woff2') format('woff2');
+        font-weight: 100 900;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 1600px;
+        height: 1000px;
+        overflow: hidden;
+      }
+      body {
+        position: relative;
+        font-family: 'Geist', system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: geometricPrecision;
+        /* Warm cream paper, like the site. */
+        background:
+          radial-gradient(1100px 700px at 12% 8%, rgba(255, 255, 255, 0.7), transparent 60%),
+          radial-gradient(900px 600px at 95% 100%, rgba(232, 214, 186, 0.55), transparent 62%),
+          linear-gradient(180deg, #f6f1e7 0%, #efe8da 100%);
+      }
+
+      .ground {
+        position: absolute;
+        pointer-events: none;
+        background: radial-gradient(closest-side, rgba(92, 62, 22, 0.34), rgba(92, 62, 22, 0.12) 55%, rgba(92, 62, 22, 0));
+      }
+
+      /* ------------------------------------------------------------ PC */
+      .pc {
+        position: absolute;
+        left: 120px;
+        top: 168px;
+        width: 960px;
+        height: 640px;
+        overflow: hidden;
+        border-radius: 16px;
+        background:
+          radial-gradient(760px 520px at 18% 6%, #4a5bb0 0%, transparent 62%),
+          radial-gradient(620px 460px at 92% 96%, #d4623b 0%, transparent 60%),
+          linear-gradient(135deg, #1e2650 0%, #2c2145 100%);
+        box-shadow:
+          0 0 0 1px rgba(60, 40, 10, 0.16),
+          0 22px 38px -14px rgba(92, 62, 22, 0.3);
+        font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Geist', sans-serif;
+      }
+      .pc .app {
+        position: absolute;
+        left: 52px;
+        top: 40px;
+        width: 740px;
+        border-radius: 10px;
+        display: block;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 30px 60px -20px rgba(0, 0, 0, 0.6);
+      }
+      .pc .scrim {
+        position: absolute;
+        left: 52px;
+        top: 40px;
+        width: 740px;
+        height: 462px;
+        border-radius: 10px;
+        background: rgba(8, 8, 7, 0.46);
+      }
+      .taskbar {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: rgba(24, 24, 32, 0.72);
+        backdrop-filter: blur(20px);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .taskbar i {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .taskbar .win {
+        background: none;
+        display: grid;
+        grid-template: 1fr 1fr / 1fr 1fr;
+        gap: 2px;
+        width: 20px;
+        height: 20px;
+      }
+      .taskbar .win b {
+        background: #6aa9ff;
+        border-radius: 1.5px;
+      }
+      .taskbar img {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+      }
+      .taskbar .tray {
+        position: absolute;
+        right: 16px;
+        color: #e9e9ee;
+        font-size: 11px;
+        line-height: 1.25;
+        text-align: right;
+      }
+
+      /* PC pairing dialog, in the desktop app's dark scheme. */
+      .pc-dialog {
+        position: absolute;
+        left: 192px;
+        top: 112px;
+        width: 400px;
+        padding: 26px 26px 22px;
+        border-radius: 16px;
+        background: #161615;
+        color: #edece8;
+        box-shadow:
+          0 0 0 1px #2b2b28,
+          0 40px 70px -20px rgba(0, 0, 0, 0.75);
+        font-family: 'Geist', sans-serif;
+        text-align: center;
+      }
+      .pc-dialog h4 {
+        font-size: 17px;
+        font-weight: 620;
+        letter-spacing: -0.01em;
+      }
+      .pc-dialog .code {
+        margin: 18px 0 14px;
+        font-family: 'Geist Mono', monospace;
+        font-size: 46px;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+      }
+      .pc-dialog p {
+        font-size: 13.5px;
+        color: #a6a59f;
+      }
+      .pc-dialog .row {
+        display: flex;
+        gap: 10px;
+        margin-top: 22px;
+      }
+      .pc-dialog .btn {
+        flex: 1;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border-radius: 10px;
+        font-size: 13.5px;
+        font-weight: 560;
+        background: #1d1d1b;
+        box-shadow: inset 0 0 0 1px #2f2f2b;
+      }
+      .pc-dialog .btn.primary {
+        background: #ee7444;
+        color: #170a04;
+        box-shadow: none;
+      }
+
+      /* Windows 11 notification (dark mode). */
+      .toast {
+        position: absolute;
+        right: 22px;
+        bottom: 66px;
+        width: 352px;
+        overflow: hidden;
+        border-radius: 9px;
+        background: rgba(44, 44, 48, 0.96);
+        color: #fff;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.1),
+          0 24px 48px -12px rgba(0, 0, 0, 0.7);
+      }
+      .toast .hero {
+        display: block;
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+        object-position: 50% 17%;
+      }
+      .toast .body {
+        padding: 12px 14px 10px;
+      }
+      .toast .top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #d0d0d6;
+        font-size: 12px;
+      }
+      .toast .top img {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+      }
+      .toast .top .dots {
+        margin-left: auto;
+        letter-spacing: 2px;
+        color: #a9a9b2;
+      }
+      .toast h5 {
+        margin-top: 10px;
+        font-size: 14.5px;
+        font-weight: 620;
+      }
+      .toast p {
+        margin-top: 2px;
+        font-size: 13px;
+        color: #cfcfd6;
+      }
+      .toast .actions {
+        display: flex;
+        gap: 8px;
+        padding: 6px 14px 14px;
+      }
+      .toast .actions span {
+        flex: 1;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.1);
+        font-size: 13px;
+      }
+
+      /* ------------------------------------------------------------ phone */
+      .phone {
+        position: absolute;
+        left: 1090px;
+        top: 96px;
+        width: 392px;
+        height: 808px;
+        padding: 11px;
+        border-radius: 56px;
+        background: linear-gradient(145deg, #2b2a28, #0f0f0e 40%, #1c1b19);
+        box-shadow:
+          0 0 0 1.5px #3a3835,
+          inset 0 0 0 1.5px #000,
+          0 24px 40px -14px rgba(70, 46, 14, 0.38);
+      }
+      .screen {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 46px;
+        background: #0c0c0b;
+        color: #edece8;
+        font-family: Roboto, 'Geist', system-ui, sans-serif;
+      }
+      .punch {
+        position: absolute;
+        left: 50%;
+        top: 14px;
+        width: 14px;
+        height: 14px;
+        margin-left: -7px;
+        border-radius: 50%;
+        background: #000;
+        box-shadow: 0 0 0 2px #151515;
+        z-index: 5;
+      }
+      .sbar {
+        display: flex;
+        justify-content: space-between;
+        padding: 14px 30px 0;
+        font-size: 13.5px;
+        font-weight: 500;
+      }
+      .sbar svg {
+        height: 11px;
+        fill: currentColor;
+      }
+      .sbar .ic {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .qs {
+        padding: 6px 18px 0;
+      }
+      .qs header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        height: 64px;
+        font-size: 22px;
+        font-weight: 400;
+      }
+      .qs header svg {
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: #edece8;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .qs .intro {
+        margin-top: 4px;
+        font-size: 14.5px;
+        line-height: 1.55;
+        color: #a6a59f;
+      }
+      .qs .vis {
+        margin-top: 14px;
+        font-size: 12.5px;
+        color: #8c8b85;
+      }
+      .qs h6 {
+        margin: 32px 0 10px;
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .qs .field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .qs .field div {
+        flex: 1;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        border-radius: 12px;
+        box-shadow: inset 0 0 0 1px #2b2b28;
+        font-size: 15px;
+      }
+      .qs .field span {
+        font-size: 14px;
+        font-weight: 500;
+        color: #4a4a47;
+        padding: 0 8px;
+      }
+      .qs .label {
+        margin: 32px 0 10px;
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #8c8b85;
+      }
+      .qs .muted {
+        font-size: 15px;
+        color: #a6a59f;
+      }
+      .qs .panel {
+        padding: 18px;
+        border-radius: 14px;
+        background: #151514;
+        box-shadow: inset 0 0 0 1px #2b2b28;
+        font-size: 14.5px;
+        line-height: 1.5;
+      }
+      .qs .nearby {
+        display: flex;
+        align-items: center;
+        margin-top: 18px;
+        font-size: 16px;
+        font-weight: 500;
+      }
+      .qs .nearby span {
+        margin-left: auto;
+        padding: 9px 18px;
+        border-radius: 12px;
+        box-shadow: inset 0 0 0 1px #3a3a36;
+        font-size: 14px;
+        color: #f28d63;
+      }
+      .qs .done {
+        margin-top: 14px;
+        font-size: 15px;
+        font-weight: 500;
+        color: #f28d63;
+      }
+      .scrim-a {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+      }
+      .a-dialog {
+        position: absolute;
+        left: 22px;
+        right: 22px;
+        top: 262px;
+        padding: 26px 24px 14px;
+        border-radius: 28px;
+        background: #242422;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      }
+      .a-dialog h4 {
+        font-size: 22px;
+        font-weight: 400;
+      }
+      .a-dialog .code {
+        margin: 14px 0 6px;
+        text-align: center;
+        font-size: 42px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+      }
+      .a-dialog p {
+        text-align: center;
+        font-size: 14px;
+        color: #c9c7c1;
+      }
+      .a-dialog .row {
+        display: flex;
+        justify-content: flex-end;
+        gap: 4px;
+        margin-top: 18px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #f28d63;
+      }
+      .a-dialog .row span {
+        padding: 10px 12px;
+      }
+      .gesture {
+        position: absolute;
+        left: 50%;
+        bottom: 9px;
+        width: 120px;
+        height: 4px;
+        margin-left: -60px;
+        border-radius: 99px;
+        background: #edece8;
+        opacity: 0.85;
+        z-index: 6;
+      }
+    </style>
+  </head>
+  <body>
+    <i class="ground" style="left: 60px; top: 730px; width: 1080px; height: 200px"></i>
+    <i class="ground" style="left: 1020px; top: 820px; width: 520px; height: 150px"></i>
+    <!-- PC -->
+    <div class="pc">
+      <img class="app" src="../out/scene/pc-app.png" alt="" />
+      <div class="scrim"></div>
+
+      <div class="pc-dialog">
+        <h4>Compare the codes</h4>
+        <div class="code">482 619</div>
+        <p>Does Alex's Pixel show the same code?</p>
+        <div class="row">
+          <span class="btn">They don't match</span>
+          <span class="btn primary">They match</span>
+        </div>
+      </div>
+
+      <div class="toast">
+        <img class="hero" src="../samples/out/phone.png" alt="" />
+        <div class="body">
+          <div class="top"><img src="../../../packages/brand/assets/app-icon.svg" alt="" /><span>Polishot</span><span class="dots">&middot;&middot;&middot;</span></div>
+          <h5>Received from Alex's Pixel</h5>
+          <p>Screenshot_20261110-0942.png &middot; 1.4 MB</p>
+        </div>
+        <div class="actions"><span>Open</span><span>Copy</span></div>
+      </div>
+
+      <div class="taskbar">
+        <i class="win"><b></b><b></b><b></b><b></b></i>
+        <i></i><i></i>
+        <img src="../../../packages/brand/assets/app-icon.svg" alt="" />
+        <i></i><i></i>
+        <div class="tray">9:42 AM<br />11/10/2026</div>
+      </div>
+    </div>
+
+    <!-- Phone -->
+    <div class="phone">
+      <div class="screen">
+        <i class="punch"></i>
+        <div class="sbar">
+          <span>9:42</span>
+          <span class="ic">
+            <svg viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" /><rect x="5" y="5" width="3" height="7" rx="1" /><rect x="10" y="2.5" width="3" height="9.5" rx="1" /><rect x="15" y="0" width="3" height="12" rx="1" /></svg>
+            <svg viewBox="0 0 26 12"><rect x="0.5" y="0.5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity="0.5" /><rect x="2.5" y="2.5" width="16" height="7" rx="2" /><rect x="24" y="4" width="2" height="4" rx="1" /></svg>
+          </span>
+        </div>
+
+        <div class="qs">
+          <header><svg viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6" /></svg><span>Quick send</span></header>
+          <p class="intro">Send screenshots between this phone and your PC over your own network. Nothing passes through a server, and every transfer is encrypted.</p>
+          <p class="vis">Visible to paired devices while this screen is open.</p>
+          <h6>This device</h6>
+          <div class="field"><div>Alex's Pixel</div><span>Save</span></div>
+          <div class="label">Paired devices</div>
+          <p class="muted">No paired devices yet.</p>
+          <div class="label">Add a device</div>
+          <div class="panel">
+            Open Polishot on your PC, choose Pair a device, then pick this phone. Or pick your PC below if it is listed.
+            <div class="nearby">Alex's PC<span>Pair</span></div>
+            <div class="done">Done</div>
+          </div>
+        </div>
+
+        <div class="scrim-a"></div>
+        <div class="a-dialog">
+          <h4>Compare the codes</h4>
+          <div class="code">482 619</div>
+          <p>Does Alex's PC show the same code?</p>
+          <div class="row"><span>They don't match</span><span>They match</span></div>
+        </div>
+        <i class="gesture"></i>
+      </div>
+    </div>
+  </body>
+</html>

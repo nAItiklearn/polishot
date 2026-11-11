@@ -1,1 +1,417 @@
-.
+<!doctype html>
+<!--
+  Sample capture: a revenue dashboard ("Meridian", a fictional analytics app). No sensitive data on screen.
+  Capture region 1280 x 800 CSS px; uneven desktop margins for auto-balance to trim.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>dashboard sample</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      :root {
+        --desk: #cdbb9f;
+        --ml: 24px;
+        --mt: 12px;
+        --mr: 20px;
+        --mb: 28px;
+        --win-bg: #f6f5f2;
+        --win-radius: 0px;
+        --win-edge: rgba(20, 24, 22, 0.16);
+        --ink: #17201e;
+        --ink-2: #55615d;
+        --ink-3: #8a9591;
+        --line: #e3e5e0;
+        --teal: #0d9488;
+        --teal-soft: #d6f0ec;
+        --amber: #f0a43a;
+        --violet: #7c6cf0;
+      }
+      .titlebar {
+        background: #10201e;
+        border-bottom: 1px solid #1c322f;
+        color: #a7bcb7;
+      }
+      .titlebar .logo {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background: linear-gradient(135deg, #14b8a6, #0d9488);
+      }
+      .layout {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .side {
+        flex: none;
+        width: 188px;
+        padding: 16px 10px;
+        background: #10201e;
+        border-right: 1px solid #1c322f;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .brand {
+        padding: 4px 10px 18px;
+        font-size: 16px;
+        font-weight: 680;
+        letter-spacing: -0.01em;
+        color: #eef6f4;
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 34px;
+        padding: 0 10px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        color: #8fa7a1;
+      }
+      .nav.on {
+        background: #1e3a36;
+        color: #fff;
+        font-weight: 560;
+      }
+      .nav .ic {
+        width: 16px;
+        height: 16px;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        padding: 20px 26px 0;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      h1 {
+        font-size: 24px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      .sub {
+        margin-top: 2px;
+        color: var(--ink-3);
+        font-size: 13px;
+      }
+      .range {
+        display: flex;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #fff;
+        font-size: 12.5px;
+        color: var(--ink-2);
+      }
+      .range span {
+        padding: 5px 11px;
+        border-radius: 7px;
+      }
+      .range .on {
+        background: #17201e;
+        color: #fff;
+      }
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-top: 18px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(20, 30, 26, 0.04);
+      }
+      .kpi {
+        padding: 15px 18px 16px;
+      }
+      .kpi label {
+        font-size: 12.5px;
+        color: var(--ink-3);
+      }
+      .kpi b {
+        display: block;
+        margin-top: 6px;
+        font-size: 26px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      .kpi i {
+        display: inline-block;
+        margin-top: 4px;
+        padding: 1px 7px;
+        border-radius: 99px;
+        font-style: normal;
+        font-size: 11.5px;
+        font-weight: 600;
+        background: var(--teal-soft);
+        color: #0b6f66;
+      }
+      .kpi i.down {
+        background: #fde8dc;
+        color: #b4491f;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 292px;
+        gap: 14px;
+        margin-top: 14px;
+      }
+      .chart {
+        padding: 16px 18px 12px;
+      }
+      .chead {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .chead h2 {
+        font-size: 14.5px;
+        font-weight: 620;
+      }
+      .legend {
+        display: flex;
+        gap: 14px;
+        font-size: 12px;
+        color: var(--ink-3);
+      }
+      .legend i {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin-right: 6px;
+        border-radius: 50%;
+      }
+      .donut {
+        padding: 16px 18px;
+      }
+      .donut h2 {
+        font-size: 14.5px;
+        font-weight: 620;
+      }
+      .ring {
+        position: relative;
+        width: 148px;
+        height: 148px;
+        margin: 14px auto 12px;
+      }
+      .ring b {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        font-size: 22px;
+        font-weight: 650;
+        line-height: 1.1;
+      }
+      .ring small {
+        display: block;
+        color: var(--ink-3);
+        font-size: 11.5px;
+        font-weight: 400;
+      }
+      .src {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        font-size: 12.5px;
+        color: var(--ink-2);
+      }
+      .src i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .src span:last-child {
+        margin-left: auto;
+        color: var(--ink);
+        font-weight: 560;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .tbl {
+        margin-top: 14px;
+        padding: 14px 18px 4px;
+      }
+      .tbl h2 {
+        margin-bottom: 4px;
+        font-size: 14.5px;
+        font-weight: 620;
+      }
+      th {
+        padding: 8px 0;
+        text-align: left;
+        font-size: 11.5px;
+        font-weight: 500;
+        color: var(--ink-3);
+        border-bottom: 1px solid var(--line);
+      }
+      td {
+        padding: 9px 0;
+        border-bottom: 1px solid #eff0ec;
+        color: var(--ink-2);
+      }
+      td:first-child {
+        color: var(--ink);
+        font-weight: 540;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      .bar {
+        display: inline-block;
+        width: 120px;
+        height: 6px;
+        border-radius: 99px;
+        background: #e9ece8;
+        vertical-align: middle;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        border-radius: 99px;
+        background: var(--teal);
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" /></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V11M12 20V4M19 20v-6M2 20h20" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .6 3.2 2.3 3.5 5.2" /></symbol>
+      <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 8.5 4.5v9L12 21l-8.5-4.5v-9zM3.5 7.5 12 12l8.5-4.5M12 12v9" /></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></symbol>
+    </svg>
+
+    <div class="desk"></div>
+    <div class="win">
+      <div class="titlebar">
+        <span class="logo"></span>
+        <span>Meridian</span>
+        <span class="grow"></span>
+        <div class="wincontrols">
+          <i><svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" /></svg></i>
+        </div>
+      </div>
+      <div class="layout">
+        <aside class="side">
+          <div class="brand">Meridian</div>
+          <div class="nav on"><svg class="ic"><use href="#i-home" /></svg><span>Overview</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-chart" /></svg><span>Reports</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-users" /></svg><span>Customers</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-box" /></svg><span>Products</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-card" /></svg><span>Payouts</span></div>
+          <div class="nav"><svg class="ic"><use href="#i-settings" /></svg><span>Settings</span></div>
+        </aside>
+
+        <main class="main">
+          <div class="top">
+            <div>
+              <h1>Overview</h1>
+              <p class="sub">Revenue and activity for Harbor &amp; Pine, November 2026</p>
+            </div>
+            <div class="range"><span>7 days</span><span class="on">30 days</span><span>90 days</span><span>12 months</span></div>
+          </div>
+
+          <div class="kpis">
+            <div class="card kpi"><label>Revenue</label><b>$48,290</b><i>+12.4%</i></div>
+            <div class="card kpi"><label>Active customers</label><b>12,840</b><i>+6.1%</i></div>
+            <div class="card kpi"><label>Conversion rate</label><b>3.82%</b><i>+0.4%</i></div>
+            <div class="card kpi"><label>Refund rate</label><b>1.2%</b><i class="down">-0.3%</i></div>
+          </div>
+
+          <div class="row">
+            <div class="card chart">
+              <div class="chead">
+                <h2>Revenue per day</h2>
+                <div class="legend"><span><i style="background: var(--teal)"></i>This month</span><span><i style="background: #c9cfcb"></i>Last month</span></div>
+              </div>
+              <svg id="chart" width="100%" viewBox="0 0 800 196" style="display: block; margin-top: 8px"></svg>
+            </div>
+            <div class="card donut">
+              <h2>Traffic sources</h2>
+              <div class="ring">
+                <svg id="ring" viewBox="0 0 148 148" width="148" height="148"></svg>
+                <b data-noocr style="pointer-events: none"></b>
+                <b><span>186k<small>visits</small></span></b>
+              </div>
+              <div class="src"><i style="background: var(--teal)"></i><span>Search</span><span>42%</span></div>
+              <div class="src"><i style="background: var(--violet)"></i><span>Direct</span><span>27%</span></div>
+              <div class="src"><i style="background: var(--amber)"></i><span>Newsletter</span><span>19%</span></div>
+              <div class="src"><i style="background: #c9cfcb"></i><span>Other</span><span>12%</span></div>
+            </div>
+          </div>
+
+          <div class="card tbl">
+            <h2>Top products</h2>
+            <table>
+              <thead><tr><th style="width: 34%">Product</th><th>Units</th><th>Revenue</th><th>Share</th></tr></thead>
+              <tbody>
+                <tr><td>Studio plan</td><td>1,284</td><td>$19,860</td><td><span class="bar"><i style="width: 82%"></i></span></td></tr>
+                <tr><td>Team plan</td><td>2,310</td><td>$14,425</td><td><span class="bar"><i style="width: 60%"></i></span></td></tr>
+                
+                
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      // Revenue chart: this month (area) against last month (dashed line).
+      const curRaw = [34, 38, 36, 44, 49, 46, 52, 58, 55, 61, 66, 63, 70, 74, 71, 79, 84, 80, 88, 93, 90, 98, 104, 101, 109, 115, 112, 120, 126, 131];
+      const prevRaw = [30, 31, 35, 33, 38, 41, 40, 45, 47, 46, 50, 54, 52, 57, 60, 58, 63, 66, 64, 69, 72, 70, 76, 79, 77, 82, 85, 84, 88, 91];
+      const W = 800, H = 196, L = 40, B = 28, T = 10;
+      const max = 3.3;
+      const cur = curRaw.map((v) => v / 46);
+      const prev = prevRaw.map((v) => v / 46);
+      const x = (i) => L + (i * (W - L - 6)) / (cur.length - 1);
+      const y = (v) => T + (1 - v / max) * (H - T - B);
+      const smooth = (a) => a.map((v, i) => {
+        if (i === 0) return `M${x(i)},${y(v)}`;
+        const cx = (x(i - 1) + x(i)) / 2;
+        return `C${cx},${y(a[i - 1])} ${cx},${y(v)} ${x(i)},${y(v)}`;
+      }).join(' ');
+      let g = '<defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d9488" stop-opacity="0.28"/><stop offset="1" stop-color="#0d9488" stop-opacity="0"/></linearGradient></defs>';
+      for (const t of [0, 1, 2, 3]) {
+        g += `<line x1="${L}" x2="${W - 6}" y1="${y(t)}" y2="${y(t)}" stroke="#e8eae6" stroke-width="1"/>`;
+        g += `<text x="${L - 10}" y="${y(t) + 4}" text-anchor="end" font-size="11" fill="#8a9591" font-family="Geist">$${t}k</text>`;
+      }
+      ['Nov 1', 'Nov 8', 'Nov 15', 'Nov 22', 'Nov 29'].forEach((d, i) => {
+        g += `<text x="${i === 4 ? W - 6 : x(i * 7.25)}" y="${H - 6}" text-anchor="${i === 4 ? 'end' : 'middle'}" font-size="11" fill="#8a9591" font-family="Geist">${d}</text>`;
+      });
+      g += `<path d="${smooth(prev)}" fill="none" stroke="#c4cac6" stroke-width="2" stroke-dasharray="5 5"/>`;
+      g += `<path d="${smooth(cur)} L${x(cur.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#fill)"/>`;
+      g += `<path d="${smooth(cur)}" fill="none" stroke="#0d9488" stroke-width="2.5" stroke-linecap="round"/>`;
+      g += `<circle cx="${x(cur.length - 1)}" cy="${y(cur[cur.length - 1])}" r="5" fill="#fff" stroke="#0d9488" stroke-width="2.5"/>`;
+      document.getElementById('chart').innerHTML = g;
+
+      // Traffic donut.
+      const parts = [[42, '#0d9488'], [27, '#7c6cf0'], [19, '#f0a43a'], [12, '#c9cfcb']];
+      const R = 62, C = 2 * Math.PI * R;
+      let off = 0, ring = '';
+      for (const [p, col] of parts) {
+        const len = (p / 100) * C;
+        ring += `<circle cx="74" cy="74" r="${R}" fill="none" stroke="${col}" stroke-width="16" stroke-dasharray="${Math.max(0, len - 3)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 74 74)"/>`;
+        off += len;
+      }
+      document.getElementById('ring').innerHTML = ring;
+    </script>
+  </body>
+</html>

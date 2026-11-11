@@ -1,1 +1,370 @@
-.
+<!doctype html>
+<!--
+  Sample capture: a team chat ("Relay", a fictional app) where someone pasted a failing request.
+  Sensitive items on screen, all invented: an e-mail address on example.com, the well-known Visa test card
+  number, an address from the 203.0.113.0/24 documentation range, and a key that says it is an example.
+  Capture region 1060 x 720 CSS px.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>chat sample</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      :root {
+        --desk: #d6d2c9;
+        --ml: 20px;
+        --mt: 12px;
+        --mr: 32px;
+        --mb: 24px;
+        --win-bg: #17181d;
+        --win-radius: 0px;
+        --win-edge: rgba(255, 255, 255, 0.1);
+        --ink: #e9e7e2;
+        --muted: #8b8d98;
+        --line: #26272e;
+      }
+      body {
+        color: var(--ink);
+      }
+      .titlebar {
+        background: #0f1013;
+        color: #8b8d98;
+        border-bottom: 1px solid #1d1e24;
+      }
+      .titlebar .logo {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background: #6d6af2;
+      }
+      .layout {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .rail {
+        flex: none;
+        width: 52px;
+        padding: 12px 0;
+        background: #0f1013;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .rail b {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: #22232a;
+        color: #aeb0bd;
+        font-size: 14px;
+      }
+      .rail b.on {
+        background: #6d6af2;
+        color: #fff;
+        box-shadow: 0 0 0 2px #0f1013, 0 0 0 4px #6d6af2;
+      }
+      .side {
+        flex: none;
+        width: 206px;
+        padding: 12px 8px;
+        background: #121317;
+        border-right: 1px solid #1d1e24;
+        font-size: 14px;
+        color: #a3a5b3;
+      }
+      .side h3 {
+        padding: 6px 10px 14px;
+        font-size: 15.5px;
+        font-weight: 640;
+        color: #f1efea;
+      }
+      .side h6 {
+        padding: 16px 10px 6px;
+        font-size: 11.5px;
+        font-weight: 560;
+        letter-spacing: 0.04em;
+        color: #6e707d;
+      }
+      .item {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: 7px;
+      }
+      .item.on {
+        background: #2a2b4a;
+        color: #fff;
+        font-weight: 560;
+      }
+      .item .hash {
+        width: 14px;
+        color: #6e707d;
+      }
+      .item.on .hash {
+        color: #b9b8ff;
+      }
+      .item .badge {
+        margin-left: auto;
+        padding: 0 7px;
+        border-radius: 99px;
+        background: #6d6af2;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .presence {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #3ecf8e;
+        box-shadow: 0 0 0 2px #121317;
+      }
+      .presence.off {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px #6e707d;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .head {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        height: 62px;
+        padding: 0 22px;
+        border-bottom: 1px solid var(--line);
+      }
+      .head h2 {
+        font-size: 16px;
+        font-weight: 650;
+      }
+      .head p {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .stack {
+        margin-left: auto;
+        display: flex;
+      }
+      .stack span {
+        width: 26px;
+        height: 26px;
+        margin-left: -7px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px #17181d;
+      }
+      .feed {
+        flex: 1;
+        min-height: 0;
+        padding: 14px 22px 0;
+        overflow: hidden;
+      }
+      .day {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .day::before,
+      .day::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      .msg {
+        display: flex;
+        gap: 14px;
+        padding: 10px 0;
+      }
+      .av {
+        flex: none;
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 640;
+      }
+      .who {
+        font-size: 14.5px;
+        font-weight: 650;
+      }
+      .who span {
+        margin-left: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+      }
+      .txt {
+        margin-top: 3px;
+        font-size: 14.5px;
+        line-height: 1.5;
+        color: #d6d4cf;
+      }
+      .code {
+        margin-top: 10px;
+        width: 560px;
+        border: 1px solid #3a3c4a;
+        border-radius: 10px;
+        background: #2a2c37;
+        overflow: hidden;
+      }
+      .code header {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 14px;
+        border-bottom: 1px solid #383a48;
+        background: #232530;
+        color: #8b8d98;
+        font-size: 11.5px;
+      }
+      .code pre {
+        padding: 12px 16px 14px;
+        font-family: 'Geist Mono', monospace;
+        font-size: 13px;
+        line-height: 21px;
+        color: #d6d4cf;
+      }
+      .code .ok {
+        color: #f2a65a;
+      }
+      .code .key {
+        display: inline-block;
+        width: 88px;
+        color: #9496aa;
+      }
+      .react {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .react span {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 10px;
+        border: 1px solid #2f3040;
+        border-radius: 99px;
+        background: #1c1d27;
+        color: #b9b8ff;
+        font-size: 12.5px;
+      }
+      .composer {
+        flex: none;
+        margin: 0 22px 18px;
+        padding: 14px 16px;
+        border: 1px solid #30313b;
+        border-radius: 12px;
+        background: #1c1d23;
+        color: #6e707d;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="desk"></div>
+    <div class="win">
+      <div class="titlebar">
+        <span class="logo"></span>
+        <span>Relay</span>
+        <span class="grow"></span>
+        <div class="wincontrols">
+          <i><svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" /></svg></i>
+        </div>
+      </div>
+      <div class="layout">
+        <nav class="rail" data-noocr>
+          <b class="on">O</b><b>D</b><b>S</b>
+        </nav>
+        <aside class="side">
+          <h3>Orbit</h3>
+          <h6>CHANNELS</h6>
+          <div class="item"><span class="hash">#</span><span>general</span></div>
+          <div class="item on"><span class="hash">#</span><span>payments-oncall</span></div>
+          <div class="item"><span class="hash">#</span><span>releases</span><span class="badge">3</span></div>
+          <div class="item"><span class="hash">#</span><span>design-crit</span></div>
+          <h6>DIRECT MESSAGES</h6>
+          <div class="item"><i class="presence"></i><span>Priya Nair</span></div>
+          <div class="item"><i class="presence"></i><span>Marcus Lee</span></div>
+          <div class="item"><i class="presence off"></i><span>Sofia Costa</span></div>
+        </aside>
+        <section class="main">
+          <div class="head">
+            <h2><span style="color: #6e707d">#</span> payments-oncall</h2>
+            <p>Charges failing? Post the request here.</p>
+            <div class="stack" data-noocr>
+              <span style="background: linear-gradient(135deg, #f59e7b, #d9663f)"></span>
+              <span style="background: linear-gradient(135deg, #7ab8f5, #4f7de8)"></span>
+              <span style="background: linear-gradient(135deg, #8de0b0, #3aa77a)"></span>
+              <span style="background: linear-gradient(135deg, #d7a7f5, #9a5fd8)"></span>
+            </div>
+          </div>
+          <div class="feed">
+            <div class="day">Today</div>
+
+            <div class="msg">
+              <span class="av" data-noocr style="background: linear-gradient(135deg, #7ab8f5, #4f7de8)">ML</span>
+              <div>
+                <div class="who">Marcus Lee<span>10:42 AM</span></div>
+                <div class="txt">Anyone else seeing 402s from the charge endpoint since this morning's deploy?</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <span class="av" data-noocr style="background: linear-gradient(135deg, #f59e7b, #d9663f)">PN</span>
+              <div>
+                <div class="who">Priya Nair<span>10:44 AM</span></div>
+                <div class="txt">Yep, reproduced it on staging. This is the failing request:</div>
+                <div class="code">
+                  <header><span>request.log</span><span>copy</span></header>
+                  <pre><span class="ok">POST /v1/charges 402 Payment Required</span>
+<span class="key">customer</span>alex.rivera@example.com
+<span class="key">card</span>4242 4242 4242 4242
+<span class="key">client_ip</span>203.0.113.42
+<span class="key">api_key</span>sk-proj-EXAMPLEKEY-NOT-REAL-0123456789abcdef</pre>
+                </div>
+                <div class="react"><span>+1&nbsp;&nbsp;2</span><span>Looking&nbsp;&nbsp;1</span></div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <span class="av" data-noocr style="background: linear-gradient(135deg, #8de0b0, #3aa77a)">SC</span>
+              <div>
+                <div class="who">Sofia Costa<span>10:46 AM</span></div>
+                <div class="txt">Thanks. Rolling back the retry change now, I will post here when it is out.</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <span class="av" data-noocr style="background: linear-gradient(135deg, #f59e7b, #d9663f)">PN</span>
+              <div>
+                <div class="who">Priya Nair<span>10:52 AM</span></div>
+                <div class="txt">Adding a regression test for the retry path before we ship it again.</div>
+              </div>
+            </div>
+          </div>
+          <div class="composer">Message #payments-oncall</div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

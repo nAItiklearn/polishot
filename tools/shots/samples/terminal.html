@@ -1,1 +1,156 @@
-.
+<!doctype html>
+<!--
+  Sample capture: a terminal window showing a Rust compiler error. No sensitive data on screen.
+  The line `error[E0382]: borrow of moved value: `frames`` is the one the OCR shot selects.
+  Capture region 960 x 620 CSS px.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>terminal sample</title>
+    <link rel="stylesheet" href="base.css" />
+    <style>
+      :root {
+        --desk: #3b4252;
+        --ml: 16px;
+        --mt: 26px;
+        --mr: 30px;
+        --mb: 14px;
+        --win-bg: #14151a;
+        --win-radius: 0px;
+        --win-edge: rgba(255, 255, 255, 0.12);
+        --ink: #d9dae0;
+      }
+      body {
+        color: var(--ink);
+      }
+      .titlebar {
+        height: 40px;
+        padding-left: 8px;
+        gap: 2px;
+        align-items: flex-end;
+        background: #0d0e11;
+        color: #8b8e9c;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 32px;
+        padding: 0 14px;
+        border-radius: 8px 8px 0 0;
+        font-size: 12.5px;
+      }
+      .tab.on {
+        background: #14151a;
+        color: #e9eaee;
+      }
+      .tab i {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        background: #3b78ff;
+      }
+      .tab i.u {
+        background: #e95420;
+      }
+      .plus {
+        padding: 0 12px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        font-size: 16px;
+        color: #8b8e9c;
+      }
+      .titlebar .wincontrols {
+        align-self: stretch;
+      }
+      .term {
+        flex: 1;
+        min-height: 0;
+        padding: 14px 20px;
+        overflow: hidden;
+        font-family: 'Geist Mono', monospace;
+        font-size: 13px;
+        line-height: 21px;
+      }
+      .term div {
+        height: 21px;
+        white-space: pre;
+      }
+      .g {
+        color: #3ddc97;
+      }
+      .r {
+        color: #ff6b6b;
+        font-weight: 640;
+      }
+      .b {
+        color: #5aa9ff;
+        font-weight: 600;
+      }
+      .y {
+        color: #f5c451;
+      }
+      .c {
+        color: #4dd6e6;
+      }
+      .d {
+        color: #7b7f90;
+      }
+      .w {
+        font-weight: 650;
+        color: #f3f4f7;
+      }
+      .cursor {
+        display: inline-block;
+        width: 8px;
+        height: 17px;
+        margin-left: 1px;
+        vertical-align: -3px;
+        background: #d9dae0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="desk"></div>
+    <div class="win">
+      <div class="titlebar">
+        <div class="tab on"><i></i><span>PowerShell</span></div>
+        <div class="tab"><i class="u"></i><span>Ubuntu</span></div>
+        <div class="plus">+</div>
+        <span class="grow"></span>
+        <div class="wincontrols">
+          <i><svg viewBox="0 0 10 10"><path d="M0 5.5h10" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" /></svg></i>
+          <i><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" /></svg></i>
+        </div>
+      </div>
+      <div class="term">
+<div><span class="g">PS</span> <span class="y">C:\dev\polishot</span> <span class="d">&gt;</span> git status -sb</div>
+<div><span class="d">## main...origin/main [ahead 2]</span></div>
+<div> <span class="y">M</span> crates/polishot-media/src/gif.rs</div>
+<div><span class="g">PS</span> <span class="y">C:\dev\polishot</span> <span class="d">&gt;</span> cargo build -p polishot-media</div>
+<div><span class="g">   Compiling</span> polishot-media v0.1.0 (C:\dev\polishot\crates\polishot-media)</div>
+<div><span class="r">error[E0382]</span><span class="w">: borrow of moved value: `frames`</span></div>
+<div>  <span class="b">--&gt;</span> crates\polishot-media\src\gif.rs:84:21</div>
+<div>   <span class="b">|</span></div>
+<div><span class="b">79 |</span>     let encoder = Encoder::new(frames, opts)?;</div>
+<div>   <span class="b">|</span>                                <span class="b">------</span> <span class="b">value moved here</span></div>
+<div><span class="b">...</span></div>
+<div><span class="b">84 |</span>     println!("encoded {} frames", frames.len());</div>
+<div>   <span class="b">|</span>                                   <span class="r">^^^^^^</span> <span class="r">value borrowed here after move</span></div>
+<div>   <span class="b">|</span></div>
+<div>   <span class="b">=</span> <span class="w">note</span>: move occurs because `frames` has type `Vec&lt;Frame&gt;`, which does not implement the `Copy` trait</div>
+<div><span class="g">help</span>: consider cloning the value if the performance cost is acceptable</div>
+<div>   <span class="b">|</span></div>
+<div><span class="b">79 |</span>     let encoder = Encoder::new(frames<span class="g">.clone()</span>, opts)?;</div>
+<div>   <span class="b">|</span>                                       <span class="g">++++++++</span></div>
+<div></div>
+<div><span class="w">For more information about this error, try `rustc --explain E0382`.</span></div>
+<div><span class="r">error</span><span class="w">: could not compile `polishot-media` (lib) due to 1 previous error</span></div>
+<div><span class="g">PS</span> <span class="y">C:\dev\polishot</span> <span class="d">&gt;</span> <span class="cursor"></span></div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -11,6 +11,8 @@
     "dev:web": "pnpm --filter @polishot/web dev",
     "dev:desktop": "pnpm --filter @polishot/desktop tauri dev",
     "e2e": "pnpm --filter @polishot/web e2e",
+    "shots": "pnpm --filter @polishot/shots capture",
+    "shots:verify": "pnpm --filter @polishot/shots verify",
     "format": "prettier --write ."
   },
   "devDependencies": {
