@@ -80,10 +80,15 @@ test.describe('footer', () => {
     });
   }
 
-  test('the site never links to the private source repository', async ({ page }) => {
+  test('every GitHub link points at the public repository and opens safely', async ({ page }) => {
     for (const path of ['/', '/download', '/privacy']) {
       await page.goto(path);
-      await expect(page.locator('a[href*="github.com"]')).toHaveCount(0);
+      const links = page.locator('a[href*="github.com"]');
+      expect(await links.count()).toBeGreaterThan(0);
+      for (const link of await links.all()) {
+        await expect(link).toHaveAttribute('href', 'https://github.com/nAItiklearn/polishot');
+        await expect(link).toHaveAttribute('rel', /noopener/);
+      }
     }
   });
 

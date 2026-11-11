@@ -9,7 +9,8 @@ import { RedactDemo } from '@/components/home/redact-demo';
 import { QuickSendDemo } from '@/components/home/quick-send-demo';
 import { TextDemo } from '@/components/home/text-demo';
 import { Keys } from '@/components/home/keycap';
-import { LICENSE_PRICE, SHARE_SAFE_SOON } from '@/lib/site';
+import { GitHubIcon } from '@/components/github-icon';
+import { PROJECT_STATUS, REPO_URL, SHARE_SAFE_SOON } from '@/lib/site';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
@@ -83,6 +84,15 @@ export default function HomePage() {
         aria-labelledby="hero-title"
         className="container-page pb-16 pt-14 text-center md:pb-24 md:pt-24"
       >
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-8 inline-flex h-9 items-center gap-2 rounded-full border border-line bg-surface/70 px-4 text-[14px] text-ink-2 transition-colors hover:border-ink-3 hover:text-ink"
+        >
+          <GitHubIcon className="size-4" />
+          {PROJECT_STATUS.short}
+        </a>
         <h1 id="hero-title" className="hero-title">
           {APP_NAME} <em className="block text-accent-ink">private by default.</em>
         </h1>
@@ -292,17 +302,16 @@ export default function HomePage() {
           <div>
             <p className="section-mark">
               <b>—</b>
-              Pricing
+              Open source
             </p>
             <h2 id="price-title" className="display-2 mt-5">
-              Free, with every feature. Pro is <em className="text-accent-ink">{LICENSE_PRICE}</em>,
-              once.
+              Free and <em className="text-accent-ink">open source.</em>
             </h2>
           </div>
           <div className="flex flex-col justify-end">
             <p className="text-lg leading-relaxed text-ink-2">
-              Pro removes the watermark, adds your own brand mark, lifts the limits on presets and
-              batch, and includes a year of updates. No subscription.
+              Every feature is free while {APP_NAME} is in progress. A paid Pro version is on hold, and
+              the license will be chosen before it ships. The code is on GitHub.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -312,12 +321,15 @@ export default function HomePage() {
                 <Download className="size-4" aria-hidden="true" />
                 Download free
               </Link>
-              <Link
-                href="/pricing"
-                className="inline-flex h-12 items-center justify-center rounded-xl border border-line px-6 font-semibold text-ink transition-colors hover:border-ink-3"
+              <a
+                href={REPO_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-line px-6 font-semibold text-ink transition-colors hover:border-ink-3"
               >
-                See pricing
-              </Link>
+                <GitHubIcon className="size-4" />
+                View on GitHub
+              </a>
             </div>
           </div>
         </div>

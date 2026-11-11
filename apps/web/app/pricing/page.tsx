@@ -11,7 +11,7 @@ import { pageMetadata } from '@/lib/metadata';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Pricing',
-  description: `${APP_NAME} is free with every feature and a small watermark. Pro is ${LICENSE_PRICE}, once: no watermark, your own brand mark, unlimited presets and batch, and a year of updates.`,
+  description: `${APP_NAME} is open source and free with every feature while it is in progress. A paid Pro version (${LICENSE_PRICE}, once) is planned but on hold.`,
   path: '/pricing',
 });
 
@@ -58,8 +58,9 @@ const FAQ = [
 export default function PricingPage() {
   return (
     <>
-      <PageHeader eyebrow="Pricing" title="Free, or pay once." variant="gold" intensity={0.8} offset={[0, 0.12]}>
-        Both versions have every feature. Pro removes the watermark and the limits.
+      <PageHeader eyebrow="Pricing" title="Free, while it's in progress." variant="gold" intensity={0.8} offset={[0, 0.12]}>
+        {APP_NAME} is open source and every feature is free. The Pro version below is planned, but on hold
+        for now.
       </PageHeader>
 
       <section aria-label="Plans" className="container-page py-16 md:py-24">
@@ -91,7 +92,7 @@ export default function PricingPage() {
             className="flex flex-col rounded-2xl border border-line bg-surface shadow-high"
           >
             <div className="flex flex-1 flex-col p-8 md:p-12">
-              <h2 className="eyebrow">Pro</h2>
+              <h2 className="eyebrow">Pro · on hold</h2>
               <p className="mt-8 flex items-baseline gap-3">
                 <span className="font-display text-[clamp(4rem,3rem+4vw,6.5rem)] leading-none tracking-[-0.04em]">
                   {LICENSE_PRICE}

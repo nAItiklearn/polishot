@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { CHECKOUT_URL } from '@/lib/site';
+import { CHECKOUT_URL, PROJECT_STATUS } from '@/lib/site';
 
 /**
  * Live link when NEXT_PUBLIC_CHECKOUT_URL is a valid https URL; otherwise a disabled button
@@ -18,10 +18,10 @@ export function BuyButton() {
   return (
     <div>
       <Button size="lg" disabled aria-describedby="buy-note" className="w-full sm:w-auto">
-        On sale soon
+        On hold
       </Button>
       <p id="buy-note" className="mt-3 max-w-[36ch] text-sm text-ink-3">
-        Pro is not on sale yet. The free version has every feature.
+        {PROJECT_STATUS.pro}
       </p>
     </div>
   );

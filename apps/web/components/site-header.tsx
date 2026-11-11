@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { APP_NAME } from '@polishot/brand';
 import { Wordmark } from '@/components/logo';
+import { GitHubIcon } from '@/components/github-icon';
+import { REPO_URL } from '@/lib/site';
 import { NavLinks } from '@/components/nav-links';
 import { MobileNav } from '@/components/mobile-nav';
 import { VisitorCounter } from '@/components/visitor-counter';
@@ -20,6 +22,16 @@ export function SiteHeader() {
         </nav>
         <div className="flex items-center gap-2">
           {showVisitors ? <VisitorCounter /> : null}
+          <a
+            href={REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${APP_NAME} source code on GitHub (opens in a new tab)`}
+            title="Open source on GitHub"
+            className="inline-flex size-11 items-center justify-center rounded-xl text-ink-2 transition-colors hover:bg-ink/5 hover:text-ink"
+          >
+            <GitHubIcon className="size-5" />
+          </a>
           <Link
             href="/download"
             className="btn-ember hidden h-11 items-center gap-2 rounded-xl px-5 text-[15px] font-semibold transition-[background-color,box-shadow] md:inline-flex"

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { ImageResponse } from 'next/og';
 import { APP_NAME, palette } from '@polishot/brand';
 import { LOCKUP_PATHS, LOCKUP_TRANSFORM, LOCKUP_VIEWBOX } from '@/components/brand/paths.generated';
-import { LICENSE_PRICE, TAGLINE } from '@/lib/site';
+import { TAGLINE } from '@/lib/site';
 
 export const alt = `${APP_NAME}: ${TAGLINE}`;
 export const size = { width: 1200, height: 630 };
@@ -87,7 +87,7 @@ export default async function OpenGraphImage() {
         </div>
 
         <div style={{ display: 'flex', fontSize: 30, color: text2 }}>
-          Windows and Android. Your screenshots never leave your device. Pro is {LICENSE_PRICE}, once.
+          Windows and Android. Your screenshots never leave your device. Free and open source.
         </div>
       </div>
     </div>,

@@ -26,7 +26,7 @@ test.describe('home', () => {
       'From your phone to your PC, over your own Wi-Fi.',
       'The words in your screenshot, ready to paste.',
       'Framed evenly, sized for where it is going.',
-      'Free, with every feature. Pro is $11, once.',
+      'Free and open source.',
     ]) {
       await expect(page.getByRole('heading', { level: 2, name: heading })).toBeAttached();
     }
@@ -203,14 +203,25 @@ test.describe('positioning', () => {
     }
   });
 
-  test('says what it is on every page: Windows and Android, and the price once', async ({
+  test('says what it is on every page: Windows and Android, free and open source', async ({
     page,
   }) => {
     await page.goto('/');
     const description = await page.locator('meta[name="description"]').getAttribute('content');
     expect(description).toContain('Windows and Android');
     expect(description).toContain('on your own device');
-    expect(description).toContain('Pro is $11, once');
+    expect(description).toContain('Free and open source');
     await expect(page).toHaveTitle('Polishot | Polished screenshots, private by default.');
+  });
+});
+
+test.describe('open source', () => {
+  test('header, hero and footer link to the GitHub repository', async ({ page }) => {
+    await page.goto('/');
+    const repo = 'https://github.com/nAItiklearn/polishot';
+    await expect(page.getByRole('link', { name: /source code on GitHub/ })).toHaveAttribute('href', repo);
+    await expect(page.getByRole('link', { name: 'Open source · in progress', exact: true })).toHaveAttribute('href', repo);
+    await expect(page.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute('href', repo);
+    await expect(page.getByText(/License not chosen yet/)).toBeAttached();
   });
 });

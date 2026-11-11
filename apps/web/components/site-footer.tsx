@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { APP_NAME } from '@polishot/brand';
 import { LogoMark } from '@/components/logo';
-import { FOOTER_LINKS, LICENSE_PRICE } from '@/lib/site';
+import { GitHubIcon } from '@/components/github-icon';
+import { FOOTER_LINKS, PROJECT_STATUS, REPO_URL } from '@/lib/site';
 import { latestRelease } from '@/lib/changelog';
 
 const linkClass =
@@ -35,7 +36,15 @@ export function SiteFooter() {
             >
               Download {APP_NAME}, free
             </Link>
-            <p className="text-[14px] text-ink-3">Pro is {LICENSE_PRICE}, once.</p>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-[14px] text-ink-2 transition-colors hover:text-ink"
+            >
+              <GitHubIcon className="size-4" />
+              Open source on GitHub
+            </a>
           </div>
         </div>
 
@@ -58,6 +67,13 @@ export function SiteFooter() {
                     )}
                   </li>
                 ))}
+                {col.title === 'Resources' ? (
+                  <li>
+                    <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className={linkClass}>
+                      Source code
+                    </a>
+                  </li>
+                ) : null}
               </ul>
             </nav>
           ))}
@@ -65,7 +81,7 @@ export function SiteFooter() {
 
         <div className="mt-40 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-sm text-ink-3 md:mt-56">
           <p>
-            &copy; {year} {APP_NAME}. All rights reserved.
+            &copy; {year} {APP_NAME}. {PROJECT_STATUS.short}. {PROJECT_STATUS.license}.
           </p>
           {release ? (
             <p className="font-mono text-xs">
