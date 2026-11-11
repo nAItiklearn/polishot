@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect as baseExpect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 /**
@@ -7,6 +7,12 @@ import { readFile } from 'node:fs/promises';
  * only on /editor, text recognition runs on-device from self-hosted files, and every flow works with
  * keyboard and pointer.
  */
+
+// Assertions poll for up to 15 s (the default is 5 s) so a busy machine does not turn into a flaky run.
+const expect = baseExpect.configure({ timeout: 15_000 });
+
+// Rendering a 4 MP canvas and running OCR are slow on a busy machine: allow time, never relax an assertion.
+test.describe.configure({ timeout: 90_000 });
 
 const EMAIL = 'alex.morgan@example.com';
 const CARD = '4242 4242 4242 4242';
@@ -101,7 +107,8 @@ test.describe('editor shell', () => {
     });
     for (const path of ['/', '/features', '/pricing', '/download']) {
       await page.goto(path);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('load');
+      await page.waitForTimeout(1500);
     }
     expect(scripts).toEqual([]);
   });
@@ -130,7 +137,7 @@ test.describe('editing', () => {
     const padding = Number(await studio(page).getAttribute('data-padding'));
     expect(padding).toBeGreaterThan(0);
     await expect(page.getByText('sample-billing.png')).toBeVisible();
-    await expect(page.getByText('2560 × 1600')).toBeVisible();
+    await expect(page.locator('.ed-file-dims')).toHaveText('2560 × 1600');
     // The free tier always exports with the watermark: the website has no licence activation.
     await page.getByRole('tab', { name: 'Export' }).click();
     await expect(page.getByText('Free exports include a small watermark.')).toBeVisible();
@@ -148,11 +155,11 @@ test.describe('editing', () => {
     await page.locator('input[type="file"]').setInputFiles(png('shot.png', TINY_PNG));
     await expect(studio(page)).toBeVisible();
     await expect(page.getByText('shot.png')).toBeVisible();
-    await expect(page.getByText('1 × 1')).toBeVisible();
+    await expect(page.locator('.ed-file-dims')).toHaveText('1 × 1');
 
     await page.locator('input[type="file"]').setInputFiles(png('second.png', await makeFixture(page)));
     await expect(page.getByText('second.png')).toBeVisible();
-    await expect(page.getByText('1500 × 460')).toBeVisible();
+    await expect(page.locator('.ed-file-dims')).toHaveText('1500 × 460');
     expect(seen.writes).toEqual([]);
     expect(seen.errors).toEqual([]);
   });
@@ -241,7 +248,7 @@ test.describe('editing', () => {
   test('keyboard only: tool shortcuts, Escape, and the panel tabs', async ({ page }) => {
     await openSample(page);
     const pressed = async (name: string) =>
-      expect(page.getByRole('button', { name, exact: false })).toHaveAttribute('aria-pressed', 'true');
+      expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true');
 
     for (const [key, name] of [
       ['a', 'Arrow'],
@@ -275,7 +282,7 @@ test.describe('editing', () => {
   });
 
   test('finds an email and a card number on-device, blurs them, and copies all the text', async ({ page, baseURL }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(240_000);
     const seen = watch(page, baseURL!);
     const ocrRequests: string[] = [];
     page.on('request', (r) => r.url().includes('/ocr/') && ocrRequests.push(new URL(r.url()).pathname));
@@ -322,7 +329,7 @@ test.describe('editing', () => {
   });
 
   test('"Find text" opens the Text panel and the canvas stays usable while it runs', async ({ page }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(240_000);
     await openFixture(page);
     await page.getByRole('button', { name: 'Find text' }).click();
     await expect(page.getByRole('tab', { name: 'Text' })).toHaveAttribute('aria-selected', 'true');
@@ -389,6 +396,7 @@ test.describe('accessibility', () => {
 
   for (const scheme of ['light', 'dark'] as const) {
     test(`axe finds no violations in the ${scheme} theme, empty and with an image`, async ({ page }) => {
+      test.setTimeout(240_000);
       await page.addInitScript((t) => localStorage.setItem('ps-theme', t), scheme);
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto('/editor');

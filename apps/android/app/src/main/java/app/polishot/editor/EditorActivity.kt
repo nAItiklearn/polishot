@@ -35,6 +35,7 @@ import app.polishot.polishotApp
 import app.polishot.quicksend.QuickSendOutbox
 import app.polishot.quicksend.SendToDeviceActivity
 import app.polishot.settings.AppSettings
+import app.polishot.settings.BrandMarkPayload
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -227,7 +228,10 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
                     finish()
                     return@launch
                 }
-                evaluate(JsCalls.batch(items, app.settings.lastLookJson, licensed, themeName(dark), exportDefaults(settings)))
+                val mark = withContext(Dispatchers.IO) { brandMarkFor(settings, licensed) }
+                evaluate(
+                    JsCalls.batch(items, app.settings.lastLookJson, licensed, themeName(dark), exportDefaults(settings), mark),
+                )
                 return@launch
             }
 
@@ -264,8 +268,13 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
             exportDefaults = exportDefaults(settings),
             defaultPreset = settings.defaultPreset,
             quickSendAvailable = true,
+            brandMark = brandMarkFor(settings, licensed),
         )
     }
+
+    /** The Pro brand mark (name or logo) for the page, or null. Never sent unless the licence is Pro. Reads a file: call off the main thread. */
+    private fun brandMarkFor(settings: AppSettings, licensed: Boolean): BrandMarkPayload? =
+        if (licensed) settings.brandMarkPayload { polishotApp.brandLogo.dataUrl() } else null
 
     private fun startOcr(id: String) {
         ocrJob?.cancel()

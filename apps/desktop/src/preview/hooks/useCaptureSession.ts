@@ -98,7 +98,9 @@ export function useCaptureSession(editor: Editor, settings: Settings | null, not
     async (meta: CaptureMeta, opts: LoadOptions = {}) => {
       const t0 = opts.t0 ?? performance.now();
       const mine = ++token.current;
-      await flush();
+      // Save the previous capture's edits without making the new one wait: flush() reads the document
+      // synchronously, before editor.load replaces it.
+      void flush();
       const cached = words.current.get(meta.id) ?? null;
       setState({ meta, phase: 'loading', error: null, words: cached, ocr: cached ? 'done' : 'pending' });
       try {

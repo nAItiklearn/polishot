@@ -43,6 +43,7 @@ import app.polishot.ui.home.FileThumbnailLoader
 import app.polishot.ui.home.HomeScreen
 import app.polishot.ui.home.HomeState
 import app.polishot.ui.license.LicenseScreen
+import app.polishot.settings.BrandMarkMode
 import app.polishot.ui.settings.SettingsScreen
 import app.polishot.ui.theme.PolishotTheme
 import java.io.IOException
@@ -63,9 +64,14 @@ private enum class Screen { Home, Settings, License, Overlay, QuickSend }
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf(Screen.Home)
     private var localNetworkGranted by mutableStateOf(true)
+    private var hasLogo by mutableStateOf(false)
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         if (uri != null) importAndOpen(uri)
+    }
+
+    private val pickLogo = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+        if (uri != null) importLogo(uri)
     }
 
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -90,6 +96,7 @@ class MainActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         if (intent.getBooleanExtra(EXTRA_OPEN_QUICK_SEND, false)) screen = Screen.QuickSend
         val thumbnails = FileThumbnailLoader(app.captures)
+        hasLogo = app.brandLogo.exists()
 
         setContent {
             val settings by app.settings.settings.collectAsStateWithLifecycle()
@@ -127,7 +134,17 @@ class MainActivity : ComponentActivity() {
                     )
                     Screen.Settings -> SettingsScreen(
                         settings = settings,
+                        pro = entitlement.pro,
+                        hasLogo = hasLogo,
                         onChange = app.settings::update,
+                        onPickLogo = {
+                            pickLogo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        onRemoveLogo = {
+                            app.brandLogo.remove()
+                            hasLogo = false
+                        },
+                        onOpenLicense = { screen = Screen.License },
                         onBack = { screen = Screen.Home },
                     )
                     Screen.License -> LicenseScreen(
@@ -258,6 +275,20 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this@MainActivity, R.string.open_image_failed, Toast.LENGTH_LONG).show()
             } else {
                 startActivity(EditorActivity.intentFor(this@MainActivity, saved.id))
+            }
+        }
+    }
+
+    /** Stores the picked image as the Pro brand-mark logo (scaled down, PNG) and switches the mark to it. */
+    private fun importLogo(uri: Uri) {
+        val app = polishotApp
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) { app.brandLogo.import(contentResolver, uri) }
+            if (ok) {
+                hasLogo = true
+                app.settings.update { it.copy(brandMarkMode = BrandMarkMode.Logo) }
+            } else {
+                Toast.makeText(this@MainActivity, R.string.brand_logo_failed, Toast.LENGTH_LONG).show()
             }
         }
     }

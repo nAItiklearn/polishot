@@ -49,7 +49,7 @@
 
 .pe-root:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--ps-focus);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ps-focus) 65%, transparent);
 }
 
 .pe-sidebar {
@@ -462,7 +462,7 @@ button.pe-lockrow:focus-visible,
 .pe-tile[aria-pressed='true'] {
   box-shadow:
     0 0 0 2px var(--ps-surface),
-    0 0 0 4px var(--ps-accent);
+    0 0 0 4px var(--ps-text);
 }
 
 .pe-tile-custom {
@@ -517,8 +517,8 @@ button.pe-lockrow:focus-visible,
 }
 
 .pe-chip[aria-pressed='true'] {
-  border-color: var(--ps-accent);
-  background: color-mix(in srgb, var(--ps-accent) 9%, var(--ps-surface));
+  border-color: var(--ps-text);
+  background: var(--ps-surface-2);
   color: var(--ps-text);
 }
 
@@ -541,7 +541,7 @@ button.pe-lockrow:focus-visible,
 .pe-colorchip[aria-pressed='true'] {
   box-shadow:
     0 0 0 2px var(--ps-surface),
-    0 0 0 4px var(--ps-accent);
+    0 0 0 4px var(--ps-text);
 }
 
 .pe-colorrow {
@@ -682,6 +682,16 @@ button.pe-lockrow:focus-visible,
   background: color-mix(in srgb, var(--ps-accent) 88%, var(--ps-text));
 }
 
+/* The redaction panel's main button is dark, so Save stays the only accent-coloured control at rest. */
+.pe-redact .pe-btn-primary {
+  background: var(--ps-text);
+  color: var(--ps-bg);
+}
+
+.pe-redact .pe-btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ps-text) 86%, var(--ps-bg));
+}
+
 .pe-btn-quiet {
   border-color: transparent;
   background: transparent;
@@ -762,7 +772,7 @@ button.pe-lockrow:focus-visible,
 }
 
 .pe-detrow[aria-checked='true'] .pe-switch {
-  background: var(--ps-accent);
+  background: var(--ps-text);
 }
 
 .pe-detrow[aria-checked='true'] .pe-switch::after {

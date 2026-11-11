@@ -153,3 +153,60 @@ describe('parseNotify', () => {
     expect(parseNotify(null)).toBeNull();
   });
 });
+
+describe('brand mark in load and batch payloads (Pro)', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const items = [{ id: 'm3k9x2ab-9f31c07e', imageUrl: URL_OK, width: 10, height: 10 }];
+
+  it('accepts a text mark and cleans it', () => {
+    const p = parseLoad(load({ licensed: true, brandMark: { type: 'text', text: '  Ada   Lovelace \n' } }), ORIGIN);
+    expect(p?.brandMark).toEqual({ type: 'text', text: 'Ada Lovelace' });
+  });
+
+  it('accepts a raster data URL logo', () => {
+    const p = parseLoad(load({ licensed: true, brandMark: { type: 'image', src: PNG } }), ORIGIN);
+    expect(p?.brandMark).toEqual({ type: 'image', src: PNG });
+  });
+
+  it('leaves the mark out when none is sent', () => {
+    expect(parseLoad(load({ licensed: true }), ORIGIN)?.brandMark).toBeUndefined();
+  });
+
+  it('drops an unsafe or malformed mark without refusing the payload', () => {
+    for (const bad of [
+      { type: 'image', src: 'https://evil.example/logo.png' },
+      { type: 'image', src: 'javascript:alert(1)' },
+      { type: 'image', src: 'file:///data/data/app.polishot/files/x.png' },
+      { type: 'image', src: 'data:image/svg+xml;base64,PHN2Zy8+' },
+      { type: 'image', src: `data:image/png;base64,${'A'.repeat(3_000_001)}` },
+      { type: 'text', text: '   ' },
+      { type: 'text', text: 'x'.repeat(401) },
+      { type: 'text' },
+      { type: 'video', src: PNG },
+      'Ada',
+      42,
+      null,
+      [],
+    ]) {
+      const p = parseLoad(load({ licensed: true, brandMark: bad }), ORIGIN);
+      expect(p, JSON.stringify(bad).slice(0, 60)).not.toBeNull();
+      expect(p?.brandMark, JSON.stringify(bad).slice(0, 60)).toBeUndefined();
+    }
+  });
+
+  it('cuts a long name at 40 characters', () => {
+    const p = parseLoad(load({ licensed: true, brandMark: { type: 'text', text: 'n'.repeat(120) } }), ORIGIN);
+    expect(p?.brandMark).toEqual({ type: 'text', text: 'n'.repeat(40) });
+  });
+
+  it('strips bidirectional override characters from a name', () => {
+    const p = parseLoad(load({ licensed: true, brandMark: { type: 'text', text: 'ab‮cd' } }), ORIGIN);
+    expect(p?.brandMark).toEqual({ type: 'text', text: 'ab cd' });
+  });
+
+  it('batch payloads carry the same mark', () => {
+    const b = parseBatch({ items, licensed: true, theme: 'light', export: {}, brandMark: { type: 'text', text: 'Ada' } }, ORIGIN);
+    expect(b?.brandMark).toEqual({ type: 'text', text: 'Ada' });
+    expect(parseBatch({ items, licensed: true, theme: 'light', export: {} }, ORIGIN)?.brandMark).toBeUndefined();
+  });
+});

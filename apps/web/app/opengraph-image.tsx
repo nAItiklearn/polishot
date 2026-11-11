@@ -11,14 +11,14 @@ export const contentType = 'image/png';
 
 const FONT_DIR = path.join(process.cwd(), 'node_modules', '@fontsource', 'instrument-serif', 'files');
 
-/** Original typographic card: paper, a hairline capture frame, the headline set large. No stock imagery. */
+/** Original typographic card: near-black with an ember glow, a hairline capture frame, the headline set large. No stock imagery. */
 export default async function OpenGraphImage() {
   const [regular, italic] = await Promise.all([
     readFile(path.join(FONT_DIR, 'instrument-serif-latin-400-normal.woff')),
     readFile(path.join(FONT_DIR, 'instrument-serif-latin-400-italic.woff')),
   ]);
 
-  const { bg, surface2, border, text, text2, accentText, accent } = palette.light;
+  const { bg, border, text, text2, accentText, accent } = palette.dark;
 
   return new ImageResponse(
     (
@@ -27,7 +27,7 @@ export default async function OpenGraphImage() {
           width: '100%',
           height: '100%',
           display: 'flex',
-          background: surface2,
+          background: bg,
           fontFamily: 'Instrument Serif',
           padding: 36,
         }}
@@ -38,14 +38,16 @@ export default async function OpenGraphImage() {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            background: bg,
+            backgroundColor: bg,
+            backgroundImage:
+              'radial-gradient(ellipse 60% 70% at 12% 112%, rgba(200,71,29,0.55), rgba(200,71,29,0) 70%), radial-gradient(ellipse 50% 60% at 92% 118%, rgba(222,160,58,0.34), rgba(222,160,58,0) 70%)',
             border: `1px solid ${border}`,
             borderRadius: 24,
             padding: '56px 64px',
           }}
         >
           <div style={{ display: 'flex', marginLeft: -22, marginTop: -18 }}>
-            {/* The brand lockup (Print P + outlined wordmark), light-theme colours. */}
+            {/* The brand lockup (Print P + outlined wordmark), dark / ember colours. */}
             <svg width="253" height="88" viewBox={LOCKUP_VIEWBOX}>
               <g transform={LOCKUP_TRANSFORM}>
                 {LOCKUP_PATHS.map((p) => (
@@ -63,17 +65,18 @@ export default async function OpenGraphImage() {
           <div
             style={{
               display: 'flex',
-              flexWrap: 'wrap',
+              flexDirection: 'column',
               fontSize: 112,
               lineHeight: 1,
               letterSpacing: '-0.035em',
               color: text,
-              maxWidth: 940,
             }}
           >
-            <span>Screenshots,&nbsp;</span>
-            <span style={{ fontStyle: 'italic', color: accentText }}>finished</span>
-            <span>&nbsp;in about two seconds.</span>
+            <div style={{ display: 'flex' }}>
+              <span>Screenshots,&nbsp;</span>
+              <span style={{ fontStyle: 'italic', color: accentText }}>finished</span>
+            </div>
+            <div style={{ display: 'flex' }}>in about two seconds.</div>
           </div>
 
           <div style={{ display: 'flex', fontSize: 30, color: text2 }}>

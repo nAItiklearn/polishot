@@ -1,0 +1,16 @@
+{
+  "name": "@polishot/shots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Real product screenshots for the website: drives the desktop preview UI (mock mode) with realistic sample captures and writes apps/web/public/shots/*.webp per the manifest.",
+  "scripts": {
+    "capture": "node capture.ts",
+    "samples": "node samples/render.ts",
+    "verify": "node capture.ts --verify-only"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "sharp": "0.35.5"
+  }
+}

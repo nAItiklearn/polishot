@@ -67,6 +67,23 @@
     <string name="settings_bubble">Floating capture button</string>
     <string name="settings_bubble_hint">Shows a button over other apps during a capture session. Off uses the notification only.</string>
 
+    <string name="settings_section_brand">Brand mark</string>
+    <string name="brand_pro_title">Your name or logo instead of the watermark</string>
+    <string name="brand_pro_body">A Pro license replaces the small Polishot mark in the corner of your exports with your own name or logo.</string>
+    <string name="brand_see_license">See license</string>
+    <string name="brand_mode_off">None</string>
+    <string name="brand_mode_text">Name</string>
+    <string name="brand_mode_logo">Logo</string>
+    <string name="brand_off_hint">Exports have no mark at all.</string>
+    <string name="brand_text_label">Your name</string>
+    <string name="brand_text_hint">Up to %1$d characters, shown in the bottom corner.</string>
+    <string name="brand_logo_none">No logo chosen yet.</string>
+    <string name="brand_logo_set">Your logo is set.</string>
+    <string name="brand_logo_choose">Choose image</string>
+    <string name="brand_logo_replace">Replace image</string>
+    <string name="brand_logo_remove">Remove</string>
+    <string name="brand_logo_failed">That image couldn\'t be used as a logo. Try a PNG or JPEG.</string>
+
     <!-- License -->
     <string name="license_title">License</string>
     <string name="license_status_pro">Polishot Pro</string>

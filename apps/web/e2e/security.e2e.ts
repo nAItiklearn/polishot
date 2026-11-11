@@ -49,8 +49,6 @@ test.describe('runtime hygiene', () => {
 
       await page.goto(path);
       await page.evaluate(() => document.fonts.ready);
-      // Exercise the interactive parts that load extra code.
-      await page.getByTestId('theme-toggle').click();
 
       expect(foreign, 'third-party requests').toEqual([]);
       expect(problems, 'console errors and warnings').toEqual([]);

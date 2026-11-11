@@ -77,6 +77,8 @@ export function Overlay() {
 
   const [mode, setMode] = useState<CaptureMode>('region');
   const [purpose, setPurpose] = useState<CapturePurpose>('capture');
+  // Remounts the hint on every arm so its fade-out animation restarts.
+  const [armCount, setArmCount] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -299,6 +301,7 @@ export function Overlay() {
       st.focusRequested = false;
       setMode(payload.mode);
       setPurpose(payload.purpose);
+      setArmCount((n) => n + 1);
       setDragging(false);
       setError(null);
       try {
@@ -471,7 +474,7 @@ export function Overlay() {
         </div>
       </div>
       {!dragging && (
-        <div className="ov-hint" aria-live="polite">
+        <div key={armCount} className="ov-hint" aria-live="polite">
           {purpose === 'scroll' ? (
             <>
               <span>Click the window to scroll-capture</span>

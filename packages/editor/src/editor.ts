@@ -709,7 +709,10 @@ export class Editor {
 
   private unveilIfReady(): void {
     if (!this.sized() || this.scene.isLoading()) return;
-    // Paint everything now, so the canvas is complete in the very frame it becomes visible.
+    // Fit and paint everything now, so the canvas is complete (and laid out for its current size) in the very
+    // frame it becomes visible, even if the ResizeObserver has not reported the size yet.
+    this.fit();
+    this.refreshSelection();
     this.scene.draw(true);
     this.setVeil(false);
   }

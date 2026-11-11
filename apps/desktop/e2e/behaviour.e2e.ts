@@ -235,7 +235,7 @@ test.describe('licence and Pro', () => {
     await input.fill('PSHOT-AAAAAA-BBBBBB');
     await page.getByRole('button', { name: 'Activate' }).click();
     await expect(page.getByRole('button', { name: /License: Pro/ })).toBeVisible();
-    await expect(page.getByText('Updates until')).toBeVisible();
+    await expect(page.getByText('Updates until', { exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Deactivate on this computer' }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Deactivate' }).click();
@@ -262,7 +262,7 @@ test.describe('licence and Pro', () => {
     for (let i = 1; i <= 3; i++) {
       await page.getByPlaceholder('Name this look').fill(`Look ${i}`);
       await page.getByRole('button', { name: 'Save', exact: true }).last().click();
-      await expect(page.getByRole('button', { name: `Look ${i}` })).toBeVisible();
+      await expect(page.getByRole('button', { name: `Look ${i}`, exact: true })).toBeVisible();
     }
     await expect(page.getByPlaceholder('Name this look')).toHaveCount(0); // no field once the limit is reached
     await expect(page.getByText('You have saved all 3 looks that Free includes.')).toBeVisible();
@@ -272,7 +272,7 @@ test.describe('licence and Pro', () => {
     for (let i = 1; i <= 4; i++) {
       await page.getByPlaceholder('Name this look').fill(`Pro look ${i}`);
       await page.getByRole('button', { name: 'Save', exact: true }).last().click();
-      await expect(page.getByRole('button', { name: `Pro look ${i}` })).toBeVisible();
+      await expect(page.getByRole('button', { name: `Pro look ${i}`, exact: true })).toBeVisible();
     }
   });
 

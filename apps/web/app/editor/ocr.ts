@@ -33,11 +33,16 @@ const MAX_LONG_SIDE = 4000;
 const OEM_LSTM_ONLY = 1;
 /** Words the model is unsure about are noise in the selectable text layer. */
 const MIN_CONFIDENCE = 30;
+/** No sign of life for this long means the engine is stuck (a slow connection still reports within this window). */
+const STALL_MS = 120_000;
+const MSG_STALLED = 'Text recognition stopped responding. Reload the page and try again.';
 
 let workerPromise: Promise<TesseractWorker> | null = null;
 let onProgress: ((p: OcrProgress) => void) | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let busy = false;
+/** Called on every sign of life from the engine; see `withWatchdog`. */
+let ping: (() => void) | null = null;
 
 /** WebAssembly SIMD is required by the shipped core. Probe with a tiny module (v128.const + i8x16.popcnt). */
 function supportsSimd(): boolean {
@@ -51,6 +56,7 @@ function supportsSimd(): boolean {
 }
 
 function report(stage: OcrStage, fraction: number): void {
+  ping?.();
   onProgress?.({ stage, fraction: Math.min(1, Math.max(0, fraction)) });
 }
 
@@ -65,8 +71,9 @@ async function createWorker(): Promise<TesseractWorker> {
       corePath: `${OCR_BASE}/${CORE_FILE}`,
       langPath: OCR_BASE,
       gzip: false,
-      // A plain same-origin worker: the CSP allows 'self' workers and no blob: script is needed.
-      workerBlobURL: false,
+      // A blob: worker inherits this page's Content-Security-Policy (which allows WebAssembly on /editor).
+      // A plain worker would take the policy of /ocr/worker.min.js instead, and /ocr is not an editor route.
+      workerBlobURL: true,
       // The files are static assets, so the browser's HTTP cache already covers repeat visits.
       cacheMethod: 'none',
       logger: (m) => {
@@ -96,6 +103,34 @@ function getWorker(): Promise<TesseractWorker> {
     });
   }
   return workerPromise;
+}
+
+/**
+ * Rejects if the engine goes quiet for STALL_MS. A worker that dies while starting (blocked WebAssembly, a
+ * missing file) never answers, and the person would otherwise watch a progress bar that never moves.
+ */
+function withWatchdog<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => reject(new OcrError(MSG_STALLED)), STALL_MS);
+    };
+    ping = arm;
+    arm();
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    ).finally(() => {
+      if (ping === arm) ping = null;
+    });
+  });
 }
 
 /** Terminates the worker (if any). Safe to call at any time; the next recognition starts a fresh one. */
@@ -193,19 +228,21 @@ export async function recognize(bitmap: ImageBitmap, progress: (p: OcrProgress) 
   onProgress = progress;
   try {
     const scale = ocrScaleFor(bitmap.width, bitmap.height);
-    const [worker, png] = await Promise.all([getWorker(), encode(bitmap, scale)]);
-    report('read', 0);
-    const { data } = await worker.recognize(png, {}, { blocks: true });
-    return wordsFromBlocks(data.blocks, scale);
+    return await withWatchdog(
+      (async () => {
+        const [worker, png] = await Promise.all([getWorker(), encode(bitmap, scale)]);
+        report('read', 0);
+        const { data } = await worker.recognize(png, {}, { blocks: true });
+        return wordsFromBlocks(data.blocks, scale);
+      })(),
+    );
   } catch (err) {
     // A failed worker is not worth keeping; the next attempt starts clean.
     const p = workerPromise;
     workerPromise = null;
     if (p) void p.then((w) => w.terminate()).catch(() => undefined);
     if (err instanceof OcrError) throw err;
-    throw new OcrError(
-      'Text recognition could not start. Reload the page and try again.',
-    );
+    throw new OcrError('Text recognition could not start. Reload the page and try again.');
   } finally {
     busy = false;
     onProgress = null;

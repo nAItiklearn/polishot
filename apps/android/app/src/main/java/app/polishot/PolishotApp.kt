@@ -13,6 +13,7 @@ import app.polishot.license.LicenseManager
 import app.polishot.license.LicenseVerifier
 import app.polishot.quicksend.QuickSendController
 import app.polishot.quicksend.QuickSendStore
+import app.polishot.settings.BrandLogoStore
 import app.polishot.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,8 @@ class PolishotApp : Application() {
     val history: HistoryRepository by lazy {
         HistoryRepository(HistoryDatabase.create(this).dao(), captures)
     }
+    /** The Pro brand-mark logo (a small PNG in app-private storage). */
+    val brandLogo: BrandLogoStore by lazy { BrandLogoStore(this) }
     val license: LicenseManager by lazy {
         LicenseManager(LicenseVerifier(), KeystoreSecretStore(this), BuildConfig.BUILD_DAYS)
     }

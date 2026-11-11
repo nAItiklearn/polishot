@@ -74,6 +74,25 @@ for (const theme of ['light', 'dark'] as const) {
       await shot(page, `13-settings-lower-${theme}`);
     });
 
+    test('settings (Pro): brand mark, and a toast', async ({ page }) => {
+      await page.goto(`/?mock=1&${q}&lic=pro&warn=1`);
+      await expect(page.locator('.pv-inspector')).toBeVisible();
+      await expect(page.locator('.pv-toast')).toBeVisible(); // the startup shortcut warning
+      await shot(page, `17-toast-warning-${theme}`);
+      await page.keyboard.press('Control+,');
+      await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+      await page.getByRole('radio', { name: 'Text' }).click();
+      await page.getByLabel('Text', { exact: true }).fill('maya.dev');
+      await page.keyboard.press('Enter');
+      await page.locator('.pv-scroll').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await shot(page, `18-settings-pro-brand-${theme}`);
+      await page.keyboard.press('Escape'); // leaves the text field
+      await page.keyboard.press('Escape'); // leaves Settings
+      await expect(page.locator('.pv-inspector')).toBeVisible();
+      await page.getByRole('tab', { name: 'Export' }).click();
+      await shot(page, `19-export-pro-${theme}`);
+    });
+
     test('license: free, pro, updates ended', async ({ page }) => {
       await openReady(page, q);
       await page.getByRole('button', { name: /License: Free/ }).click();

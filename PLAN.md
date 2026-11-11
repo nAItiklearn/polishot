@@ -182,3 +182,12 @@ After each milestone: run all tests, fix failures, run the review agents, and gi
 **Q3. Android toolchain:** may I install JDK 21 (Temurin) and the Android command-line tools, SDK, and an x86_64 emulator image locally (about 6–8 GB on D:)? That lets me build, test and record the Android demo here. Otherwise Android is CI-only and the demo script is left for you to run.
 
 **Q4. Vercel:** may I create preview deploys under your logged-in Vercel account once the site is ready? Production waits for your explicit OK either way.
+
+## 7. v0.2 roadmap (approved by owner 2026-11-11 — start only after v0.1 ships)
+Positioning: "CleanShot-quality for Windows + Android, private by default, $11 once."
+1. **Share-safe check** — before copy/export, on-device scan (reuse `packages/redact`) for emails,
+   API keys, cards, faces, QR codes; one-click blur. Lead marketing feature.
+2. **Guide export** — 3–10 captures with step numbers → Markdown / PDF / one tall image (Pro value).
+3. **Social presets** — one-click sizes/backgrounds for X, LinkedIn, Product Hunt, app stores + device frames.
+Later candidates: OCR translate / copy-as-code; optional cloud share links (separate decision — cost + privacy).
+Website now: lead with Share-safe and Windows + Android.

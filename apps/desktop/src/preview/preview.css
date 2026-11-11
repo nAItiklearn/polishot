@@ -731,16 +731,22 @@ body {
 
 /* ---------------------------------------------------------------- toasts */
 
+/* Centred at the bottom of the canvas (or the page), above the floating toolbar, never over the inspector. */
 .pv-toasts {
   position: fixed;
-  top: 48px;
-  left: 50%;
+  right: 8px;
+  bottom: 24px;
+  left: 8px;
   z-index: 60;
   display: grid;
   gap: 8px;
   justify-items: center;
-  transform: translateX(-50%);
   pointer-events: none;
+}
+
+.pv-app[data-inspector='true'] .pv-toasts {
+  right: 296px;
+  bottom: 88px;
 }
 
 .pv-toast {
@@ -756,7 +762,7 @@ body {
   box-shadow: var(--ps-shadow-2);
   font-size: 13px;
   pointer-events: auto;
-  animation: pv-rise var(--ps-dur) var(--ps-ease);
+  animation: pv-toast-in var(--ps-dur) var(--ps-ease);
 }
 
 .pv-toast-error {
@@ -1626,6 +1632,13 @@ body {
 @keyframes pv-fade {
   from {
     opacity: 0;
+  }
+}
+
+@keyframes pv-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 

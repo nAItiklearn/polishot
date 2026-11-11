@@ -70,7 +70,17 @@ building on it. A git checkpoint commit was made at handoff time (`git log -1`).
 | 11 | web in-browser editor | `apps/web/app/editor/**`, `apps/web/e2e/editor.e2e.ts`, `apps/web/public/ocr/**` | 🟡 in progress — tesseract.js self-hosted, lazy OCR, export/copy/share, UX-BAR; may need a CSP change in `next.config.ts` (`worker-src blob:`, `wasm-unsafe-eval` scoped to /editor) | `pnpm --filter @polishot/web e2e -- editor.e2e.ts` |
 | 12 | Android app | `apps/android/**` (not `quicksend/`), `.github/workflows/android.yml` | 🟡 in progress — Gradle project, editor-host, capture service + bubble, share receiver + batch, ML Kit OCR, Room history, BouncyCastle license + entitlement, quick-send UI (NsdManager), README | `pnpm --filter @polishot/android-editor-host build`; owner/CI: `./gradlew test assembleDebug` |
 
+> Update 2026-11-11: #12 Android agent **finished** (165 files; 117 JVM tests + editor-host 29 tests
+> passed via scratch kotlinc; Android-dependent code never compiled). A compile-hardening audit agent
+> now owns `apps/android/**` (verifying AGP 9.5.1 / Gradle 9.6.1 / Kotlin 2.4.21 / SDK 37,
+> `ACCESS_LOCAL_NETWORK`, adding `workflow_call` to android.yml). Owner must build it — see apps/android/README.md.
+
 ## 5. Remaining work after the above (milestone M6)
+> Update 2026-11-11: agents were started for items 1 (CI/release → `.github/workflows/ci.yml`,
+> `release.yml`, `dependabot.yml`), 2 (screenshots → `tools/shots/**`, outputs in
+> `apps/web/public/shots/`) and 4 (demos → `tools/demo/**`). If a new session starts, check those
+> folders, run them, and finish whatever is missing. Items 3 (reviews) and 5 (docs) not started yet.
+
 1. **Root CI** `.github/workflows/ci.yml`: js (lint/typecheck/vitest/web build/Playwright incl. editor e2e),
    rust (windows-latest MSVC: fmt, clippy -D warnings, `cargo test --workspace`), android (call android.yml).
    `release.yml` on `v*` tags: Tauri NSIS+MSI → `Polishot-Setup-x64.exe`, `Polishot-x64.msi`;

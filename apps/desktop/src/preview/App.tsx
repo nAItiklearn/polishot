@@ -546,7 +546,12 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
       const typing = isTypingTarget(e.target);
 
       if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
-        if (typing) return;
+        if (typing) {
+          // In a field on one of our screens, Esc first leaves the field; the next Esc leaves the screen.
+          // (The editor's own text box handles its Escape itself.)
+          if (e.target instanceof HTMLElement && e.target.closest('.pv-page')) e.target.blur();
+          return;
+        }
         if (v !== 'editor') {
           e.preventDefault();
           doRun('go-editor');
@@ -598,7 +603,7 @@ function Shell({ toasts, onDismiss }: { toasts: ReturnType<typeof useToasts>['to
   /* ------------------------------ render ------------------------------ */
 
   return (
-    <div className="pv-app" data-view={view}>
+    <div className="pv-app" data-view={view} data-inspector={view === 'editor' && ready}>
       <TitleBar
         view={view}
         hasImage={ready}

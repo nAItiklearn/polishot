@@ -1,6 +1,7 @@
 import { APP_SLUG } from '@polishot/brand';
 import { describe, expect, it } from 'vitest';
 import { stripDataUrlPrefix } from '../src/base64';
+import { FREE_BATCH_LIMIT, FREE_PRESET_LIMIT } from '@polishot/editor';
 import { batchLimit, canSaveAnotherLook, FREE_BATCH_IMAGES, FREE_SAVED_LOOKS, MAX_SAVED_LOOKS } from '../src/limits';
 import { lookToPatch } from '../src/look';
 import { exportFileName } from '../src/naming';
@@ -27,6 +28,13 @@ describe('free tier limits (CONTRACTS 5b)', () => {
     expect(FREE_BATCH_IMAGES).toBe(5);
     expect(batchLimit(false)).toBe(5);
     expect(batchLimit(true)).toBe(100);
+  });
+});
+
+describe('limits come from the editor package', () => {
+  it('uses the shared numbers instead of its own copies', () => {
+    expect(FREE_SAVED_LOOKS).toBe(FREE_PRESET_LIMIT);
+    expect(FREE_BATCH_IMAGES).toBe(FREE_BATCH_LIMIT);
   });
 });
 

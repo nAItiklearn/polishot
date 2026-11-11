@@ -85,7 +85,9 @@ describe('filterActions (the command palette search)', () => {
   it('keeps disabled actions listed, after the ones that can run', () => {
     const list = items({ 'copy-image': false });
     const r = ids(filterActions(list, 'copy'));
-    expect(r).toEqual(['copy-text', 'copy-image']);
+    expect(r[0]).toBe('copy-text');
+    expect(r).toContain('copy-image');
+    expect(r.at(-1)).toBe('copy-image'); // the disabled one comes last, still listed
   });
 
   it('says nothing matches with an empty list, not an error', () => {

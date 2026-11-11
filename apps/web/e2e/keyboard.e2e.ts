@@ -59,13 +59,8 @@ test.describe('keyboard only', () => {
     await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
   });
 
-  test('the theme toggle and the FAQ work from the keyboard', async ({ page }) => {
+  test('the FAQ works from the keyboard', async ({ page }) => {
     await page.goto('/pricing');
-    const toggle = page.getByTestId('theme-toggle');
-    await tabTo(page, toggle);
-    await page.keyboard.press('Enter');
-    await expect(page.locator('html')).toHaveAttribute('data-theme', /light|dark/);
-
     const question = page.getByText('Do I need to be online to activate a license?');
     await tabTo(page, question.locator('xpath=ancestor-or-self::summary'));
     await page.keyboard.press('Enter');

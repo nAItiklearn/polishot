@@ -13,12 +13,16 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -27,9 +31,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.polishot.R
 import app.polishot.settings.AppSettings
+import app.polishot.settings.BrandMarkMode
+import app.polishot.settings.BrandMarkRules
 import app.polishot.settings.ExportFormat
 import app.polishot.settings.PresetIds
 import app.polishot.settings.ThemeMode
+import app.polishot.ui.components.Panel
 import app.polishot.ui.components.ScreenHeader
 import app.polishot.ui.components.SectionLabel
 import app.polishot.ui.components.SegmentedChoice
@@ -42,7 +49,12 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
+    pro: Boolean,
+    hasLogo: Boolean,
     onChange: ((AppSettings) -> AppSettings) -> Unit,
+    onPickLogo: () -> Unit,
+    onRemoveLogo: () -> Unit,
+    onOpenLicense: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -138,6 +150,17 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 8.dp),
             )
 
+            SectionLabel(stringResource(R.string.settings_section_brand))
+            BrandMarkSection(
+                settings = settings,
+                pro = pro,
+                hasLogo = hasLogo,
+                onChange = onChange,
+                onPickLogo = onPickLogo,
+                onRemoveLogo = onRemoveLogo,
+                onOpenLicense = onOpenLicense,
+            )
+
             SectionLabel(stringResource(R.string.settings_section_capture))
             Row(
                 modifier = Modifier
@@ -160,6 +183,87 @@ fun SettingsScreen(
                     )
                 }
                 Switch(checked = settings.bubbleEnabled, onCheckedChange = null)
+            }
+        }
+    }
+}
+
+/** Pro: your name or logo in the corner instead of the watermark. Free sees one calm note, not a locked maze. */
+@Composable
+private fun BrandMarkSection(
+    settings: AppSettings,
+    pro: Boolean,
+    hasLogo: Boolean,
+    onChange: ((AppSettings) -> AppSettings) -> Unit,
+    onPickLogo: () -> Unit,
+    onRemoveLogo: () -> Unit,
+    onOpenLicense: () -> Unit,
+) {
+    if (!pro) {
+        Panel(modifier = Modifier.testTag("brand-locked")) {
+            Text(stringResource(R.string.brand_pro_title), style = MaterialTheme.typography.titleSmall)
+            Text(
+                stringResource(R.string.brand_pro_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            TextButton(onClick = onOpenLicense) { Text(stringResource(R.string.brand_see_license)) }
+        }
+        return
+    }
+
+    SegmentedChoice(
+        options = BrandMarkMode.entries.toList(),
+        selected = settings.brandMarkMode,
+        label = { mode ->
+            when (mode) {
+                BrandMarkMode.Off -> stringResource(R.string.brand_mode_off)
+                BrandMarkMode.Text -> stringResource(R.string.brand_mode_text)
+                BrandMarkMode.Logo -> stringResource(R.string.brand_mode_logo)
+            }
+        },
+        onSelect = { m -> onChange { it.copy(brandMarkMode = m) } },
+        groupDescription = stringResource(R.string.settings_section_brand),
+    )
+    when (settings.brandMarkMode) {
+        BrandMarkMode.Off -> Text(
+            stringResource(R.string.brand_off_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        BrandMarkMode.Text -> OutlinedTextField(
+            value = settings.brandMarkText,
+            onValueChange = { v -> onChange { it.copy(brandMarkText = v) } },
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("brand-text"),
+            singleLine = true,
+            label = { Text(stringResource(R.string.brand_text_label)) },
+            supportingText = { Text(stringResource(R.string.brand_text_hint, BrandMarkRules.MAX_TEXT)) },
+            shape = RoundedCornerShape(12.dp),
+        )
+        BrandMarkMode.Logo -> Column(modifier = Modifier.padding(top = 12.dp)) {
+            Text(
+                stringResource(if (hasLogo) R.string.brand_logo_set else R.string.brand_logo_none),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onPickLogo,
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp).testTag("brand-logo-choose"),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(stringResource(if (hasLogo) R.string.brand_logo_replace else R.string.brand_logo_choose))
+                }
+                if (hasLogo) {
+                    TextButton(onClick = onRemoveLogo, modifier = Modifier.heightIn(min = 52.dp)) {
+                        Text(stringResource(R.string.brand_logo_remove))
+                    }
+                }
             }
         }
     }

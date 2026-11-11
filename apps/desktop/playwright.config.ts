@@ -9,6 +9,8 @@ const PORT = 1421;
 
 export default defineConfig({
   testDir: './e2e',
+  // *.e2e.ts, so that Vitest (which picks up *.spec.ts) never tries to run these.
+  testMatch: /\.e2e\.ts$/,
   outputDir: './e2e/artifacts',
   timeout: 60_000,
   expect: { timeout: 10_000 },

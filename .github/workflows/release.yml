@@ -1,0 +1,316 @@
+name: Release
+
+# Builds the Windows installers and the Android app from a version tag and publishes them as a
+# GitHub Release. Asset names must match ASSETS in apps/web/lib/site.ts, because the download page
+# links to /releases/latest/download/<name>:
+#   Polishot-Setup-x64.exe, Polishot-x64.msi, Polishot.apk (+ Polishot.aab, SHA256SUMS.txt)
+#
+# Trigger: push a tag `v<version>` where <version> equals "version" in
+# apps/desktop/src-tauri/tauri.conf.json and CHANGELOG.md has a "## <version>" section.
+# workflow_dispatch with an existing tag publishes that tag; without a tag it is a dry run that
+# builds and uploads workflow artifacts only.
+#
+# Optional secrets (each step skips cleanly when they are absent):
+#   WINDOWS_CERT_PFX (base64 .pfx), WINDOWS_CERT_PASSWORD
+#   POLISHOT_KEYSTORE_BASE64, POLISHOT_KEYSTORE_PASSWORD, POLISHOT_KEY_ALIAS, POLISHOT_KEY_PASSWORD
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.1.0). Leave empty for a dry run without publishing."
+        required: false
+        default: ""
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  meta:
+    name: Resolve version and build date
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      source_date_epoch: ${{ steps.meta.outputs.source_date_epoch }}
+      build_days: ${{ steps.meta.outputs.build_days }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - id: meta
+        name: Check tag, version and changelog
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          conf_version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          if [ "${EVENT}" = "push" ]; then tag="${PUSHED_TAG}"; else tag="${INPUT_TAG}"; fi
+
+          if [ -n "${tag}" ]; then
+            publish=true
+            version="${tag#v}"
+            if [ "${version}" != "${conf_version}" ]; then
+              echo "::error::Tag ${tag} does not match tauri.conf.json version ${conf_version}."
+              exit 1
+            fi
+          else
+            publish=false
+            version="${conf_version}"
+            echo "::notice title=Dry run::No tag given; building ${version} without publishing."
+          fi
+
+          android_version=$(sed -n 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' apps/android/app/build.gradle.kts | head -n1)
+          if [ "${android_version}" != "${version}" ]; then
+            echo "::warning::Android versionName (${android_version:-not found}) differs from ${version}."
+          fi
+
+          # Fail before the long builds if the release notes are missing.
+          node scripts/ci/changelog-section.mjs "${version}" > /dev/null
+
+          # Build date = commit time of the tagged commit, so rebuilding a tag gives the same
+          # BUILD_DAYS and the license update window (CONTRACTS section 5b) is deterministic.
+          epoch=$(git log -1 --format=%ct HEAD)
+          case "${version}" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "publish=${publish}"
+            echo "prerelease=${prerelease}"
+            echo "source_date_epoch=${epoch}"
+            echo "build_days=$((epoch / 86400))"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Version ${version}, SOURCE_DATE_EPOCH ${epoch}, BUILD_DAYS $((epoch / 86400))."
+
+  windows:
+    name: Windows installers (NSIS + MSI)
+    needs: meta
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      # Read by apps/desktop/src-tauri/build.rs to embed POLISHOT_BUILD_DAYS.
+      SOURCE_DATE_EPOCH: ${{ needs.meta.outputs.source_date_epoch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      # beforeBuildCommand in tauri.conf.json builds the frontend first.
+      - name: Build installers
+        run: pnpm --filter @polishot/desktop tauri build --bundles nsis,msi
+
+      # The Cargo workspace puts output in the root target/ directory.
+      - name: Collect installers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $nsis = @(Get-ChildItem -Path target/release/bundle/nsis -Filter *-setup.exe -ErrorAction SilentlyContinue)
+          $msi = @(Get-ChildItem -Path target/release/bundle/msi -Filter *.msi -ErrorAction SilentlyContinue)
+          if ($nsis.Count -ne 1 -or $msi.Count -ne 1) {
+            Get-ChildItem -Recurse target/release/bundle -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "Expected exactly one NSIS installer and one MSI, found $($nsis.Count) and $($msi.Count)."
+          }
+          Copy-Item $nsis[0].FullName dist/Polishot-Setup-x64.exe
+          Copy-Item $msi[0].FullName dist/Polishot-x64.msi
+
+      - name: Sign installers (only when WINDOWS_CERT_PFX exists)
+        shell: pwsh
+        env:
+          CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:CERT_PFX) {
+            Write-Output "::notice title=Unsigned installers::WINDOWS_CERT_PFX is not set, so the installers are not code-signed."
+            exit 0
+          }
+          $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+          $signtool = Get-ChildItem -Path $kits -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe was not found in the Windows SDK.' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'polishot-signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
+            $signArgs = @('sign', '/f', $pfx, '/fd', 'SHA256', '/tr', 'http://timestamp.digicert.com', '/td', 'SHA256', '/d', 'Polishot')
+            if ($env:CERT_PASSWORD) { $signArgs += @('/p', $env:CERT_PASSWORD) }
+            & $signtool.FullName @signArgs dist/Polishot-Setup-x64.exe dist/Polishot-x64.msi
+            if ($LASTEXITCODE -ne 0) { throw "signtool exited with $LASTEXITCODE." }
+            & $signtool.FullName verify /pa dist/Polishot-Setup-x64.exe dist/Polishot-x64.msi
+            if ($LASTEXITCODE -ne 0) { throw "signtool verify exited with $LASTEXITCODE." }
+          } finally {
+            Remove-Item -Force -ErrorAction SilentlyContinue $pfx
+          }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android APK + AAB
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx3g
+      BUILD_DAYS: ${{ needs.meta.outputs.build_days }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: true
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Accept Android SDK licences
+        run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      # apps/android/app/build.gradle.kts reads POLISHOT_KEYSTORE, POLISHOT_KEYSTORE_PASSWORD,
+      # POLISHOT_KEY_ALIAS and POLISHOT_KEY_PASSWORD, and falls back to debug signing without them.
+      - name: Release signing (only when the keystore secret exists)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.POLISHOT_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.POLISHOT_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.POLISHOT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.POLISHOT_KEY_PASSWORD }}
+        run: |
+          if [ -z "${KEYSTORE_BASE64}" ]; then
+            echo "::warning title=Debug-signed Android build::POLISHOT_KEYSTORE_BASE64 is not set; the APK and AAB use the debug key and cannot go to the Play Store."
+            exit 0
+          fi
+          keystore="${RUNNER_TEMP}/polishot-release.keystore"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+          chmod 600 "${keystore}"
+          {
+            echo "POLISHOT_KEYSTORE=${keystore}"
+            echo "POLISHOT_KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+            echo "POLISHOT_KEY_ALIAS=${KEY_ALIAS}"
+            echo "POLISHOT_KEY_PASSWORD=${KEY_PASSWORD}"
+          } >> "${GITHUB_ENV}"
+          echo "Release keystore configured."
+
+      # -PbuildDays pins BuildConfig.BUILD_DAYS to the tag commit date (same value as desktop).
+      - name: assembleRelease bundleRelease
+        working-directory: apps/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease bundleRelease -PbuildDays="${BUILD_DAYS}" --stacktrace
+
+      - name: Collect APK and AAB
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp apps/android/app/build/outputs/apk/release/app-release.apk dist/Polishot.apk
+          cp apps/android/app/build/outputs/bundle/release/app-release.aab dist/Polishot.aab
+
+      - name: Remove the decoded keystore
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/polishot-release.keystore"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-android
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [meta, windows, android]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums and release notes
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in Polishot-Setup-x64.exe Polishot-x64.msi Polishot.apk Polishot.aab; do
+            [ -f "$f" ] || { echo "::error::Missing release asset $f"; exit 1; }
+          done
+          sha256sum Polishot-Setup-x64.exe Polishot-x64.msi Polishot.apk Polishot.aab > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          node scripts/ci/changelog-section.mjs "${VERSION}" > "${RUNNER_TEMP}/notes.md"
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          assets=(dist/Polishot-Setup-x64.exe dist/Polishot-x64.msi dist/Polishot.apk dist/Polishot.aab dist/SHA256SUMS.txt)
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "Release ${TAG} exists; replacing its assets and notes."
+            gh release edit "${TAG}" --notes-file "${RUNNER_TEMP}/notes.md"
+            gh release upload "${TAG}" "${assets[@]}" --clobber
+          else
+            flags=()
+            if [ "${PRERELEASE}" = "true" ]; then flags+=(--prerelease); fi
+            gh release create "${TAG}" "${assets[@]}" \
+              --verify-tag \
+              --title "Polishot ${VERSION}" \
+              --notes-file "${RUNNER_TEMP}/notes.md" \
+              "${flags[@]}"
+          fi

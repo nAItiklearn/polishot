@@ -141,6 +141,7 @@ export function App() {
       setWords(p.words ?? null);
       setPro(p.licensed);
       editor.setLicensed(p.licensed);
+      editor.setBrandMark(p.brandMark ?? null);
       applyTheme(p.theme);
       setSession({ id: p.id, defaults: p.exportDefaults, quickSendAvailable: p.quickSendAvailable });
       try {
@@ -179,6 +180,7 @@ export function App() {
       setTab(null);
       setPro(p.licensed);
       editor.setLicensed(p.licensed);
+      editor.setBrandMark(p.brandMark ?? null);
       applyTheme(p.theme);
       setBatch({ processed: 0, total: Math.min(p.items.length, batchLimit(p.licensed)), failed: 0 });
       await runBatch(editor, p, {

@@ -1,10 +1,10 @@
-import type { PresetId } from '@polishot/editor';
+import { sanitizeBrandMark, type BrandMark, type PresetId } from '@polishot/editor';
 import type { OcrWord } from '@polishot/redact';
 
 /*
  * Types and validators for everything Android sends into the page (`window.polishot.*`). The native side is our
  * own code, but the page still treats the payloads as untrusted input: a malformed value is dropped, never
- * half-applied. No DOM or editor runtime is imported here, so this file runs under plain Node in the unit tests.
+ * half-applied. Nothing here touches the DOM, so this file runs under plain Node in the unit tests.
  */
 
 export type ThemeName = 'light' | 'dark';
@@ -30,6 +30,8 @@ export interface LoadPayload {
   exportDefaults: ExportDefaults;
   defaultPreset: PresetId;
   quickSendAvailable: boolean;
+  /** Pro brand mark (your name or logo instead of the watermark); only ever drawn while the licence is Pro (licensed is true). */
+  brandMark?: BrandMark;
 }
 
 export interface BatchItem {
@@ -45,6 +47,7 @@ export interface BatchPayload {
   licensed: boolean;
   theme: ThemeName;
   export: ExportDefaults;
+  brandMark?: BrandMark;
 }
 
 export type NotifyKind = 'saved' | 'copied' | 'shared' | 'sent' | 'error';
@@ -65,6 +68,8 @@ export const MAX_WORD_CHARS = 4000;
 export const MAX_DOC_JSON_CHARS = 8_000_000;
 export const MAX_BATCH_ITEMS = 100;
 export const MAX_LOOK_JSON_CHARS = 400_000;
+/** A logo arrives as a data URL; Android stores it at most 1 MB, which is about 1.4 million base64 characters. */
+export const MAX_BRAND_SRC_CHARS = 3_000_000;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown, min: number, max: number): v is number =>
@@ -80,6 +85,18 @@ export function isCaptureUrl(url: unknown, origin: string): url is string {
   } catch {
     return false;
   }
+}
+
+/**
+ * The optional Pro brand mark. A bad value is dropped (the export is then clean for Pro, or watermarked for
+ * Free), never a reason to refuse the whole payload. sanitizeBrandMark from the editor package does the real
+ * check: text is cleaned and cut, an image must be a raster data: or blob: URL.
+ */
+export function parseBrandMark(raw: unknown): BrandMark | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (raw.type === 'image' && typeof raw.src === 'string' && raw.src.length > MAX_BRAND_SRC_CHARS) return undefined;
+  if (raw.type === 'text' && typeof raw.text === 'string' && raw.text.length > 400) return undefined;
+  return sanitizeBrandMark(raw) ?? undefined;
 }
 
 export function parseTheme(v: unknown): ThemeName {
@@ -128,6 +145,7 @@ export function parseLoad(raw: unknown, origin: string): LoadPayload | null {
     docJson = raw.docJson;
   }
   const preset = PRESET_IDS.find((p) => p === raw.defaultPreset) ?? 'auto';
+  const brandMark = parseBrandMark(raw.brandMark);
 
   return {
     id: raw.id,
@@ -141,6 +159,7 @@ export function parseLoad(raw: unknown, origin: string): LoadPayload | null {
     exportDefaults: parseExportDefaults(raw.exportDefaults),
     defaultPreset: preset,
     quickSendAvailable: raw.quickSendAvailable === true,
+    ...(brandMark ? { brandMark } : {}),
   };
 }
 
@@ -159,12 +178,14 @@ export function parseBatch(raw: unknown, origin: string): BatchPayload | null {
     if (typeof raw.lookJson !== 'string' || raw.lookJson.length > MAX_LOOK_JSON_CHARS) return null;
     lookJson = raw.lookJson;
   }
+  const batchMark = parseBrandMark(raw.brandMark);
   return {
     items,
     ...(lookJson ? { lookJson } : {}),
     licensed: raw.licensed,
     theme: parseTheme(raw.theme),
     export: parseExportDefaults(raw.export),
+    ...(batchMark ? { brandMark: batchMark } : {}),
   };
 }
 

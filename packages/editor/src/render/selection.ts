@@ -139,7 +139,10 @@ export class SelectionUI {
   }
 
   private placeOutline(node: Konva.Node): void {
-    const r = node.getClientRect({ relativeTo: this.scene.uiLayer as unknown as Konva.Container });
+    // Relative to the main layer, which is the annotation node's own ancestor and shares the UI layer's design-pixel
+    // coordinates. (Relative to the UI layer, a different branch, Konva falls back to screen coordinates and the
+    // outline lands in the wrong place whenever the view is zoomed or offset.)
+    const r = node.getClientRect({ relativeTo: this.scene.mainLayer as unknown as Konva.Container });
     const k = 1 / Math.max(0.01, this.scene.stage.scaleX());
     const pad = 4 * k;
     this.outline.setAttrs({

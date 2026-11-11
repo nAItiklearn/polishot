@@ -8,6 +8,8 @@ mod pin;
 mod protocol;
 mod quicksend;
 mod recorder;
+#[cfg(debug_assertions)]
+mod selftest;
 mod share;
 mod shortcuts;
 mod state;
@@ -142,6 +144,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Pay the one-time GDI start-up cost now instead of on the first hotkey.
     std::thread::spawn(grab::prewarm);
     quicksend::start_if_paired(&handle);
+    #[cfg(debug_assertions)]
+    selftest::spawn(&handle);
     Ok(())
 }
 

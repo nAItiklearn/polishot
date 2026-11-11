@@ -195,6 +195,7 @@ below are additive. Each one has a reason, and all of them are optional for any 
 | `exportDefaults: { format: 'png' \| 'jpeg' \| 'webp'; quality: number /* 0.4..1 */; scale: 1 \| 2 \| 3 }` | The Settings screen's defaults for the Save, Share and Copy buttons. Missing means PNG, 0.92, 2x. |
 | `defaultPreset: PresetId` | Canvas preset from Settings, applied only to documents the user has not styled yet. Missing means `'auto'`. |
 | `quickSendAvailable: boolean` | Whether the "Send to PC" button is shown. Missing means `false`. |
+| `brandMark: { type: 'text'; text: string } \| { type: 'image'; src: string }` | The Pro brand mark (section 5b) from Settings, applied with `editor.setBrandMark`. Android sends it only while `licensed` is true; a logo is a `data:image/png;base64,...` URL (the page CSP allows `data:` images and nothing remote). The page re-validates it with `sanitizeBrandMark` and drops anything unsafe. The same optional field is accepted by `batch`. Missing means no mark: a Pro export is then clean. |
 
 `licensed` in `load` / `setLicensed` is the **Pro** flag of CONTRACTS section 5b (`entitlement.pro`): a genuine key whose
 update window covers this build.
@@ -306,3 +307,119 @@ beyond the contract; each one degrades gracefully when the backend does not (yet
    side: emit `capture:ready` first, or show the window only after the preview acknowledges it.
 6. **`LicenseStatus`** in the client carries the optional `reason` and `updatesUntil` fields that the Rust side
    already returns (see "Desktop license status" above).
+
+## Pro entitlements and the interaction bar (packages/license, crates/polishot-license, packages/editor)
+
+Nothing in CONTRACTS sections 3, 4 or 5b was removed or renamed. Everything below is additive, except the three
+behaviour changes called out under "Behaviour changes".
+
+### `@polishot/license` (TypeScript)
+
+- `LicenseInfo.issuedDays: number`, the exact unsigned 32-bit issue day. `issuedAt` is a JS `Date` and is clamped for
+  absurd values (a vector uses 4294967295), so the window maths reads `issuedDays`.
+- `UPDATE_WINDOW_DAYS = 365`.
+- `updatesUntilDays(info) = min(issuedDays + 365, 4294967295)`: it saturates exactly like Rust `saturating_add`, so a
+  key issued on day `u32::MAX` covers every build instead of wrapping to a tiny number.
+- `updatesUntilDate(info): Date` (midnight UTC, clamped to the largest JS Date).
+- `coversBuild(info, buildDays): boolean`: `buildDays <= updatesUntilDays(info)`, the last day is included. Fails
+  closed: anything that is not an integer in `0..4294967295` is not covered.
+- `entitlement(result: VerifyResult | null | undefined, buildDays): { pro, reason?, updatesUntil? }`. `null` or
+  `undefined` is `no-key`; a failed or malformed result is `invalid`; a genuine key outside its window is `pro: false,
+  reason: 'updates-expired'` and still reports `updatesUntil` (`YYYY-MM-DD`) so the UI can say when updates ended.
+- `buildDaysFromDate(d: Date)`: days since the Unix epoch (UTC); throws `RangeError` for an invalid or pre-1970 date so
+  a broken build script fails loudly. `daysToIso(days)`: `YYYY-MM-DD` for any u32 day count.
+- Types `Entitlement`, `EntitlementReason`. How apps embed `BUILD_DAYS` (Vite, Next.js, Rust `build.rs`, Gradle) is
+  documented in `packages/license/README.md` and `crates/polishot-license/README.md`. Never default `BUILD_DAYS` to 0:
+  day 0 is covered by every key.
+
+### `polishot-license` (Rust)
+
+- `LicenseInfo::updates_until_days() -> u32` (saturating) and `covers_build(build_days: u32) -> bool`.
+- `pub const UPDATE_WINDOW_DAYS: u32 = 365`.
+- `Entitlement { pro: bool, reason: Option<&'static str>, updates_until_days: Option<u32> }` with consts
+  `Entitlement::NO_KEY` / `INVALID`, `Entitlement::for_info(&info, build_days)` (for a key you already verified), and
+  `REASON_NO_KEY` / `REASON_INVALID` / `REASON_UPDATES_EXPIRED`.
+- `entitlement(key: Option<&str>, build_days: u32) -> Entitlement` checks against the production key;
+  `entitlement_with_key(key, &public_key, build_days)` takes the key (tests use the test key). `None` or a blank
+  string is `no-key`; a key that does not verify is `invalid`.
+
+### Shared vectors (`packages/license/test-vectors.json`)
+
+`cases` is byte-for-byte unchanged (Ed25519 signatures are deterministic, `vectors` regenerates the same output). New
+array `entitlementCases`: `{ name, key, buildDays, pro, reason?, updatesUntilDays? }`. `key` is `""` or whitespace when
+nothing is activated (not `null`, so every JSON parser reads it as a string). The cases cover a build inside the
+window, on the issue day, before the issue day, the last covered day (inclusive), one day after, years after, both
+editions, the u32 saturation key (a recent build and `buildDays = 4294967295`), invalid keys (flipped signature,
+signed by another key, future version, garbage) and no key (empty, whitespace). Kotlin and Rust consumers read
+`cases` as before and may read `entitlementCases` to test their own port.
+
+### `@polishot/editor`: Pro
+
+- `BrandMark = { type: 'text'; text } | { type: 'image'; src }`. `EditorOptions.brandMark?`, `editor.brandMark`
+  (getter) and `editor.setBrandMark(mark | null): boolean` (false and cleared when the input is not valid). It is an
+  app setting, not part of `EditorDoc`: it never enters undo history or saved documents; the host stores it.
+- Drawing rule, one decision point (`markPlan(licensed, mark)`): unless `licensed === true` the default watermark is
+  ALWAYS drawn and the brand mark is ignored, however it was set (fail closed); licensed with a valid mark draws the
+  mark instead of the watermark; licensed with no mark draws nothing. Text uses the watermark's style, bottom-right at
+  the watermark's margin, capped at half the canvas width; a logo is scaled to contain within about two lines of
+  watermark text (so it has the same visual weight), bottom-right at the same margin, never wider than 40 percent of
+  the canvas. The same `Scene` code renders the canvas and the export, so they match (a test compares the two).
+- `sanitizeBrandMark(input, origins?)`: text is whitespace-normalised, control and bidi characters are stripped,
+  and it is cut to 40 characters; an image must pass `isSafeImageSrc` (inline raster `data:`, `blob:` or a listed
+  origin; no SVG, `file:`, `javascript:` or unlisted remote hosts). Prototype-pollution and inherited properties are
+  ignored.
+- `exportDoc(doc, image, opts, extras)`: `extras.brandMark` for batch exports. It only takes effect when
+  `opts.licensed === true`. `Editor.export` passes the editor's own mark and keeps the earlier rule (`licensed &&
+  opts.licensed !== false`).
+- `presetLimit(pro) = 3 | Infinity` and `batchLimit(pro) = 5 | Infinity` (constants `FREE_PRESET_LIMIT`,
+  `FREE_BATCH_LIMIT`); only the boolean `true` is Pro. The Inspector enforces the preset limit; hosts enforce the
+  batch limit.
+- `<Inspector>` new props: `pro?` (default `editor.licensed`), `onUpgrade?()` (hosts open pricing) and
+  `onBrandMarkChange?(mark | null)` (hosts store the mark). New "Brand mark" section: for Free a locked row with a
+  small "Pro" tag (a button when `onUpgrade` is given); for Pro Off / Text / Logo with a text field or a logo picker
+  (PNG, JPEG, WebP or GIF under 2 MB). "Saved looks": for Free the Save field is disabled at 3 looks with a quiet
+  "Free keeps 3 presets — Pro removes the limit" note, a "n of 3" count and, when `onUpgrade` is given, a
+  "See Pro" link. Looks beyond the limit (a lapsed licence) stay usable and deletable.
+
+### `@polishot/editor`: interaction bar (docs/UX-BAR.md)
+
+- Hover preview: `editor.preview(patch)`, `editor.clearPreview()`, `editor.previewing`. A preview renders the patched
+  document without recording history, firing `change`, or touching `doc` and exports; any committing action clears it.
+  The Inspector previews on pointer hover (mouse and pen) and keyboard focus for the Auto and swatch backgrounds, frame
+  chips and saved looks; click commits. Measured: median 0.5 ms per preview on a 4K capture.
+- `editor.autoPadding` (what auto-balance suggested). The auto analysis is computed once per loaded image and shared
+  by `load`, `rebalance` and `computeAutoBackground` (which used to re-analyse the image on every Inspector render).
+- Sliders (`Slider` in the shared UI): a drag is live and one undo step; arrow keys change the value by `nudge`
+  units (1 in the label's unit, e.g. 1 percent, 1 px), Shift by 10; a held key is one undo step; double-click resets to
+  `reset` (Padding: the auto-balance value; Corners 12; Shadow 50 percent; Angle 160; Blur 30; stroke, text and brush
+  sizes: the image-scaled defaults). `Slider` takes optional `nudge` and `reset` props.
+- `editor.nudgeSelection(dx, dy, fold?)` and `editor.duplicateSelection()`. Keys (`mapSelectionShortcut`): arrows move
+  the selection 1 source-image px, Shift+arrow 10 px (not while a slider, select, button or toolbar has focus, so those
+  keep their arrow keys); Ctrl/Cmd+D duplicates (offset about 16 screen px, copy selected, one undo step, a copied
+  automatic redaction becomes manual, a copied step takes the next number). A held arrow key folds into one undo step
+  through the new `History.amend`.
+- Shift while drawing (45 degree lines and arrows, squares and circles) was already implemented; it now also reacts to
+  Shift being pressed or released mid-drag without a pointer move.
+- Numbered steps renumber: deleting a step renumbers the rest 1..k in their current order, in the same undo step
+  (`renumberSteps`). This supersedes clarification 6 of the earlier editor entry ("smallest unused number"): numbers are
+  now always contiguous, so the next new step is k+1.
+- No flash: after `load` the canvas is hidden until its first frame is complete: the element has a size, background
+  images and logos are decoded, the view is fitted and both layers are drawn. A host that loads before it attaches the
+  element, or a saved document with an image background, never shows an unstyled or mis-sized frame (600 ms cap so a
+  broken URL cannot hide the editor).
+- Selection chrome is a 1 px accent outline with small round handles (8 px, round; the dashed outline for steps and
+  strokes is now a thin solid line). Tooltips open after 400 ms.
+- Performance: on large canvases (longer than 1800 design px) the interactive scene keeps the soft shadow as a bitmap
+  at reduced resolution instead of re-blurring a huge rectangle every frame. A 4K padding drag went from about 42 ms to
+  about 21 ms of software raster per frame; exports still render the real shadow. The playground exposes
+  `window.__polishot.image`, `exportDoc` and `EditorClass` for the end-to-end tests.
+
+### Behaviour changes (existing behaviour that moved)
+
+1. The Text tool stays active after a note is committed (it used to switch to Select and select the new note), as the
+   UX bar asks for every drawing tool. Esc or V returns to Select. The matching assertion in `e2e/smoke.spec.ts` was
+   updated. Clicking away from an open text field now only commits it (it no longer also starts a new note); empty
+   text is discarded.
+2. Numbered steps renumber on delete (see above).
+3. The Inspector's Padding slider has a finer native step (0.1 percent) and the Angle slider a 1 degree step; arrow keys
+   use the nudge unit instead of the native step.
