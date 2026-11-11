@@ -12,7 +12,6 @@ import {
 } from '@polishot/editor/react';
 import type { OcrWord } from '@polishot/redact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { blobToBase64 } from './base64';
 import { runBatch } from './batch';
 import { BatchOverlay } from './components/BatchOverlay';
 import { Chips } from './components/Chips';
@@ -28,6 +27,7 @@ import { exportFileName } from './naming';
 import { native, type HostHandlers } from './native';
 import {
   MAX_DOC_JSON_CHARS,
+  MAX_SAVE_DOC_CHARS,
   MIME,
   type BatchPayload,
   type ExportDefaults,
@@ -214,6 +214,7 @@ export function App() {
         return true;
       },
       batch: (p) => void handleBatch(p),
+      flush: () => flushSave.current(),
     };
     const detach = attachHost(handlers);
     native.ready();
@@ -231,6 +232,9 @@ export function App() {
       const json = JSON.stringify(editor.doc);
       if (json === lastSaved.current || editor.doc.image.id !== id) return;
       lastSaved.current = json;
+      // Android keeps documents up to ~1.2M characters (one database column); a larger one (an embedded background
+      // photo) would be refused, so do not transfer it. The screenshot itself is already stored.
+      if (json.length > MAX_SAVE_DOC_CHARS) return;
       native.saveDoc(id, json);
     };
     flushSave.current = flush;
@@ -255,8 +259,7 @@ export function App() {
 
   const render = useCallback(
     async (format: ExportFormat, quality: number, scale: 1 | 2 | 3) => {
-      const blob = await editor.export({ format, quality, scale, licensed: editor.licensed });
-      return blobToBase64(blob);
+      return editor.export({ format, quality, scale, licensed: editor.licensed });
     },
     [editor],
   );
@@ -271,7 +274,7 @@ export function App() {
     if (!session) return;
     startBusy('copy');
     try {
-      native.copyImage(await render('png', 1, session.defaults.scale));
+      await native.copyImage(await render('png', 1, session.defaults.scale));
     } catch {
       failRender();
     }
@@ -282,7 +285,7 @@ export function App() {
     const { format, quality, scale } = session.defaults;
     startBusy('save');
     try {
-      native.saveImage(await render(format, quality, scale), MIME[format], exportFileName(format));
+      await native.saveImage(await render(format, quality, scale), MIME[format], exportFileName(format));
     } catch {
       failRender();
     }
@@ -293,7 +296,7 @@ export function App() {
     const { format, quality, scale } = session.defaults;
     startBusy('share');
     try {
-      native.shareImage(await render(format, quality, scale), MIME[format]);
+      await native.shareImage(await render(format, quality, scale), MIME[format]);
     } catch {
       failRender();
     }
@@ -301,16 +304,15 @@ export function App() {
 
   const quickSend = useCallback(async () => {
     try {
-      native.quickSend(await render('png', 1, 2));
+      await native.quickSend(await render('png', 1, 2));
     } catch {
       failRender();
     }
   }, [render, failRender]);
 
   const onExport = useCallback(async (result: ExportResult) => {
-    const base64 = await blobToBase64(result.blob);
-    if (result.action === 'copy') native.copyImage(base64);
-    else native.saveImage(base64, MIME[result.options.format], result.filename);
+    if (result.action === 'copy') await native.copyImage(result.blob);
+    else await native.saveImage(result.blob, MIME[result.options.format], result.filename);
   }, []);
 
   const onSavePreset = useCallback(

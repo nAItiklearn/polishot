@@ -3,6 +3,7 @@ package app.polishot.share
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.test.core.app.ApplicationProvider
 import app.polishot.PolishotApp
 import app.polishot.R
@@ -79,6 +80,17 @@ class ShareReceiverTest {
         assertTrue(activity.isFinishing)
         assertEquals(context.getString(R.string.share_nothing), ShadowToast.getTextOfLatestToast())
         assertNull(shadowOf(context).nextStartedActivity)
+    }
+
+    @Test
+    fun `a recreated activity finishes instead of importing the same images again`() {
+        val uri = Uri.parse("content://media/external/images/media/1")
+        // A non-null saved state is what the system passes after the process was killed and the screen is restored.
+        val activity = Robolectric.buildActivity(ShareReceiverActivity::class.java, send(uri)).create(Bundle()).get()
+
+        assertTrue(activity.isFinishing)
+        assertNull("no import and no editor on a restore", shadowOf(context).nextStartedActivity)
+        assertNull("nothing to tell the user", ShadowToast.getLatestToast())
     }
 
     @Test

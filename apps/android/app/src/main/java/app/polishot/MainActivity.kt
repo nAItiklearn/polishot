@@ -5,6 +5,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -19,14 +21,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,15 +40,16 @@ import app.polishot.editor.EditorActivity
 import app.polishot.quicksend.QuickSendController
 import app.polishot.quicksend.QuickSendEvent
 import app.polishot.quicksend.problemMessage
-import app.polishot.ui.quicksend.QuickSendScreen
+import app.polishot.settings.BrandMarkMode
 import app.polishot.ui.capture.OverlayPermissionScreen
 import app.polishot.ui.home.FileThumbnailLoader
 import app.polishot.ui.home.HomeScreen
 import app.polishot.ui.home.HomeState
 import app.polishot.ui.license.LicenseScreen
-import app.polishot.settings.BrandMarkMode
+import app.polishot.ui.quicksend.QuickSendScreen
 import app.polishot.ui.settings.SettingsScreen
 import app.polishot.ui.theme.PolishotTheme
+import app.polishot.ui.theme.WindowColors
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,11 +64,19 @@ private enum class Screen { Home, Settings, License, Overlay, QuickSend }
  * Capture flow: overlay permission (only when the floating button is on) -> notification permission (Android 13+)
  * -> the system screen-capture consent dialog -> a foreground capture session. The consent is asked again for every
  * session, as Android 14 and later require.
+ *
+ * The manifest lists every configuration change (rotation, font scale, locale, dark mode, ...) as handled by the
+ * activity, so none of them recreates it: a pairing dialog or an open offer survives a rotation, and the current
+ * screen is also saved for process death.
  */
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf(Screen.Home)
     private var localNetworkGranted by mutableStateOf(true)
+
+    /** True once the system will no longer show the local-network prompt: only the app settings can grant it. */
+    private var localNetworkBlocked by mutableStateOf(false)
     private var hasLogo by mutableStateOf(false)
+    private lateinit var thumbnails: FileThumbnailLoader
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         if (uri != null) importAndOpen(uri)
@@ -80,23 +92,30 @@ class MainActivity : ComponentActivity() {
 
     // Whatever the user answers, the capture itself does not need the notification permission.
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        requestConsent()
+        continueAfterNotifications()
     }
 
     // Android 17 and later: reaching devices on the local network needs this runtime permission.
     private val localNetworkPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         localNetworkGranted = granted
+        localNetworkBlocked = !granted &&
+            !shouldShowRequestPermissionRationale(QuickSendController.LOCAL_NETWORK_PERMISSION)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = polishotApp
-        localNetworkGranted = !QuickSendController.needsLocalNetworkPermission ||
-            ContextCompat.checkSelfPermission(this, QuickSendController.LOCAL_NETWORK_PERMISSION) ==
-            PackageManager.PERMISSION_GRANTED
-        if (intent.getBooleanExtra(EXTRA_OPEN_QUICK_SEND, false)) screen = Screen.QuickSend
-        val thumbnails = FileThumbnailLoader(app.captures)
+        localNetworkGranted = hasLocalNetworkPermission()
+        screen = Screen.entries.firstOrNull { it.name == savedInstanceState?.getString(KEY_SCREEN) } ?: Screen.Home
+        // A launch from the "Send to" sheet asks for Quick send; a recreated activity keeps the screen it was on.
+        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_OPEN_QUICK_SEND, false)) screen = Screen.QuickSend
+        thumbnails = FileThumbnailLoader(app.captures)
         hasLogo = app.brandLogo.exists()
+
+        // Edge-to-edge and the window colour are set before the first frame, from the saved theme, so there is no
+        // flash of the wrong colour while Compose starts.
+        val darkAtStart = app.settings.settings.value.theme.isDark(isSystemDark())
+        applyWindowStyle(darkAtStart)
 
         setContent {
             val settings by app.settings.settings.collectAsStateWithLifecycle()
@@ -104,12 +123,12 @@ class MainActivity : ComponentActivity() {
             val sessionActive by CaptureSession.active.collectAsStateWithLifecycle()
             var query by rememberSaveable { mutableStateOf("") }
             val history = remember(query) { app.history.observe(query) }
-            val items by history.collectAsStateWithLifecycle(initialValue = emptyList())
+            // null until the database has answered once, so the empty-state text never flashes on a cold start.
+            val items by history.collectAsStateWithLifecycle(initialValue = null)
             val dark = settings.theme.isDark(isSystemInDarkTheme())
 
             DisposableEffect(dark) {
-                val bars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
-                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+                applyWindowStyle(dark)
                 onDispose { }
             }
             BackHandler(enabled = screen != Screen.Home) { screen = Screen.Home }
@@ -117,7 +136,12 @@ class MainActivity : ComponentActivity() {
             PolishotTheme(darkTheme = dark) {
                 when (screen) {
                     Screen.Home -> HomeScreen(
-                        state = HomeState(items = items, query = query, sessionActive = sessionActive),
+                        state = HomeState(
+                            items = items.orEmpty(),
+                            query = query,
+                            sessionActive = sessionActive,
+                            loading = items == null,
+                        ),
                         thumbnails = thumbnails,
                         onCapture = this@MainActivity::startCaptureFlow,
                         onStopSession = { CaptureService.stop(this@MainActivity) },
@@ -149,15 +173,21 @@ class MainActivity : ComponentActivity() {
                     )
                     Screen.License -> LicenseScreen(
                         entitlement = entitlement,
-                        onActivate = app.license::activate,
-                        onDeactivate = app.license::deactivate,
+                        // Ed25519 verification and the Keystore write are off the main thread.
+                        onActivate = { raw -> withContext(Dispatchers.Default) { app.license.activate(raw) } },
+                        onDeactivate = { app.appScope.launch(Dispatchers.Default) { app.license.deactivate() } },
                         onBack = { screen = Screen.Home },
                     )
                     Screen.QuickSend -> QuickSendRoute(
                         controller = app.quickSend,
                         permissionGranted = localNetworkGranted,
+                        permissionBlocked = localNetworkBlocked,
                         onRequestPermission = {
-                            localNetworkPermission.launch(QuickSendController.LOCAL_NETWORK_PERMISSION)
+                            if (localNetworkBlocked) {
+                                openAppSettings()
+                            } else {
+                                localNetworkPermission.launch(QuickSendController.LOCAL_NETWORK_PERMISSION)
+                            }
                         },
                         onBack = { screen = Screen.Home },
                         onEvent = this@MainActivity::onQuickSendEvent,
@@ -176,6 +206,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_SCREEN, screen.name)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -184,11 +219,33 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Permissions can change in system settings while the app is in the background.
+        localNetworkGranted = hasLocalNetworkPermission()
+        if (localNetworkGranted) localNetworkBlocked = false
         // Back from the system "display over other apps" page with the permission granted: carry on capturing.
         if (screen == Screen.Overlay && Settings.canDrawOverlays(this)) {
             screen = Screen.Home
             startCaptureFlow()
         }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::thumbnails.isInitialized) thumbnails.trim(level)
+    }
+
+    /* ---------------------------------------------------------------------------------------- */
+    /* Window                                                                                     */
+    /* ---------------------------------------------------------------------------------------- */
+
+    private fun isSystemDark(): Boolean =
+        (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    private fun applyWindowStyle(dark: Boolean) {
+        val bars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
+        enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+        window.setBackgroundDrawable(ColorDrawable(WindowColors.background(dark)))
     }
 
     /* ---------------------------------------------------------------------------------------- */
@@ -207,13 +264,35 @@ class MainActivity : ComponentActivity() {
         if (needsNotificationPermission) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            requestConsent()
+            continueAfterNotifications()
         }
+    }
+
+    /**
+     * With the floating button off, the notification's Capture action is the only way to take a shot. If
+     * notifications are blocked too, a session would be running with nothing to press, so say so and open the
+     * settings instead of starting it.
+     */
+    private fun continueAfterNotifications() {
+        val bubbleUsable = polishotApp.settings.settings.value.bubbleEnabled && Settings.canDrawOverlays(this)
+        if (!bubbleUsable && !NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+            Toast.makeText(this, R.string.capture_needs_trigger, Toast.LENGTH_LONG).show()
+            openNotificationSettings()
+            return
+        }
+        requestConsent()
     }
 
     private fun requestConsent() {
         val manager = getSystemService(MediaProjectionManager::class.java)
-        consent.launch(manager.createScreenCaptureIntent())
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Android 14+: offer only "entire screen". Sharing one app would give black frames the moment the user
+            // switches apps, which is exactly what a screenshot tool is used for.
+            manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+            manager.createScreenCaptureIntent()
+        }
+        consent.launch(intent)
     }
 
     private fun onConsentResult(resultCode: Int, data: Intent?) {
@@ -232,9 +311,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun openNotificationSettings() {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        try {
+            startActivity(intent)
+        } catch (e: RuntimeException) {
+            openAppSettings()
+        }
+    }
+
+    private fun openAppSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+        try {
+            startActivity(intent)
+        } catch (e: RuntimeException) {
+            Toast.makeText(this, R.string.overlay_settings_unavailable, Toast.LENGTH_LONG).show()
+        }
+    }
+
     /* ---------------------------------------------------------------------------------------- */
     /* Quick send                                                                                 */
     /* ---------------------------------------------------------------------------------------- */
+
+    private fun hasLocalNetworkPermission(): Boolean =
+        !QuickSendController.needsLocalNetworkPermission ||
+            ContextCompat.checkSelfPermission(this, QuickSendController.LOCAL_NETWORK_PERMISSION) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun onQuickSendEvent(event: QuickSendEvent) {
         when (event) {
@@ -269,6 +371,10 @@ class MainActivity : ComponentActivity() {
                     s
                 } catch (e: IOException) {
                     null
+                } catch (e: RuntimeException) {
+                    null
+                } catch (e: OutOfMemoryError) {
+                    null
                 }
             }
             if (saved == null) {
@@ -296,6 +402,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Set by the "Send to" sheet when there is nobody to send to yet. */
         const val EXTRA_OPEN_QUICK_SEND = "app.polishot.extra.OPEN_QUICK_SEND"
+        private const val KEY_SCREEN = "app.polishot.state.SCREEN"
     }
 }
 
@@ -307,6 +414,7 @@ class MainActivity : ComponentActivity() {
 private fun QuickSendRoute(
     controller: QuickSendController,
     permissionGranted: Boolean,
+    permissionBlocked: Boolean,
     onRequestPermission: () -> Unit,
     onBack: () -> Unit,
     onEvent: (QuickSendEvent) -> Unit,
@@ -320,6 +428,7 @@ private fun QuickSendRoute(
     QuickSendScreen(
         state = state,
         needsPermission = !permissionGranted,
+        permissionBlocked = permissionBlocked,
         onRequestPermission = onRequestPermission,
         onBack = onBack,
         onPairingOpen = controller::setPairingOpen,

@@ -4,11 +4,30 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.util.ArrayDeque
 
 /** A device seen on the LAN. Everything here is an untrusted hint until a stored pair record vouches for it. */
 data class DiscoveredPeer(val id: DeviceId, val name: String, val host: String, val port: Int)
+
+/**
+ * Chooses the address to connect to from what mDNS resolved. A device usually answers with several (IPv4, IPv6 with
+ * and without a link-local scope); IPv4 is preferred because it needs no scope id and every home network has it.
+ * Loopback, wildcard, multicast and link-local addresses are never used: a peer that advertises them is either broken
+ * or trying to point us at this phone itself. Pure, so it is covered by JVM tests.
+ */
+internal object NsdAddresses {
+    fun pick(candidates: List<InetAddress>): InetAddress? {
+        val usable = candidates.filter { !it.isLoopbackAddress && !it.isAnyLocalAddress && !it.isMulticastAddress }
+        usable.firstOrNull { it is Inet4Address && !it.isLinkLocalAddress }?.let { return it }
+        return usable.firstOrNull { !it.isLinkLocalAddress }
+    }
+}
 
 /**
  * mDNS / DNS-SD for quick send (docs/QUICKSEND.md section 4) on top of the platform [NsdManager]. The record layout
@@ -37,6 +56,10 @@ class QuickSendDiscovery(context: Context) {
     private val resolveQueue = ArrayDeque<NsdServiceInfo>()
     private var resolving = false
     private val lock = Any()
+
+    // A resolve can fail while the platform is busy with another one; it is tried again a few times.
+    private val retryHandler = Handler(Looper.getMainLooper())
+    private val attempts = HashMap<String, Int>()
 
     /** Publishes this device. [listenPort] is the port the listener is bound to. */
     fun advertise(identity: Identity, deviceName: String, listenPort: Int) {
@@ -99,7 +122,9 @@ class QuickSendDiscovery(context: Context) {
         synchronized(lock) {
             resolveQueue.clear()
             resolving = false
+            attempts.clear()
         }
+        retryHandler.removeCallbacksAndMessages(null)
         if (listener != null) runCatching { nsd.stopServiceDiscovery(listener) }
         releaseMulticastLock()
     }
@@ -121,6 +146,17 @@ class QuickSendDiscovery(context: Context) {
             next,
             object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                    val key = serviceInfo.serviceName.orEmpty()
+                    val tries = synchronized(lock) { (attempts[key] ?: 0).also { attempts[key] = it + 1 } }
+                    if (tries < MAX_RESOLVE_RETRIES && discovery != null) {
+                        // Put it back at the end of the queue after a short pause.
+                        retryHandler.postDelayed({
+                            if (discovery != null) {
+                                synchronized(lock) { resolveQueue.add(serviceInfo) }
+                                resolveNext(ownId, listener)
+                            }
+                        }, RESOLVE_RETRY_MILLIS * (tries + 1))
+                    }
                     finishResolve(ownId, listener)
                 }
 
@@ -130,7 +166,8 @@ class QuickSendDiscovery(context: Context) {
                     } catch (e: QuickSendException) {
                         null // malformed record: ignored, as the protocol requires
                     }
-                    val host = serviceInfo.host?.hostAddress
+                    val host = addressOf(serviceInfo)
+                    synchronized(lock) { attempts.remove(serviceInfo.serviceName.orEmpty()) }
                     if (advert != null && advert.id != ownId && host != null && serviceInfo.port in 1..65535) {
                         listener.onPeerFound(DiscoveredPeer(advert.id, advert.name, host, serviceInfo.port))
                     }
@@ -138,6 +175,17 @@ class QuickSendDiscovery(context: Context) {
                 }
             },
         )
+    }
+
+    @Suppress("DEPRECATION") // NsdServiceInfo.host is the only choice before API 34
+    private fun addressOf(info: NsdServiceInfo): String? {
+        val candidates: List<InetAddress> =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                info.hostAddresses
+            } else {
+                listOfNotNull(info.host)
+            }
+        return NsdAddresses.pick(candidates)?.hostAddress
     }
 
     private fun finishResolve(ownId: DeviceId, listener: Listener) {
@@ -161,5 +209,7 @@ class QuickSendDiscovery(context: Context) {
 
     private companion object {
         const val TAG = "PolishotQuickSend"
+        const val MAX_RESOLVE_RETRIES = 3
+        const val RESOLVE_RETRY_MILLIS = 400L
     }
 }

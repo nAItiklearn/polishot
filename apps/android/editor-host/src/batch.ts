@@ -1,5 +1,4 @@
 import type { Editor } from '@polishot/editor';
-import { blobToBase64 } from './base64';
 import { loadImage } from './editorInstance';
 import { batchLimit } from './limits';
 import { lookToPatch } from './look';
@@ -43,9 +42,8 @@ export async function runBatch(editor: Editor, payload: BatchPayload, hooks: Bat
       editor.load({ id: item.id, width: img.naturalWidth, height: img.naturalHeight, element: img });
       if (patch) editor.update(patch);
       const blob = await editor.export({ format, quality, scale, licensed: payload.licensed });
-      const base64 = await blobToBase64(blob);
       const result = hooks.waitForSaveResult();
-      native.saveImage(base64, MIME[format], exportFileName(format, `-${String(index + 1).padStart(2, '0')}`));
+      await native.saveImage(blob, MIME[format], exportFileName(format, `-${String(index + 1).padStart(2, '0')}`));
       if ((await result) === 'error') failed++;
     } catch {
       failed++;

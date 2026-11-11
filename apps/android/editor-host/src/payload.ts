@@ -32,6 +32,8 @@ export interface LoadPayload {
   quickSendAvailable: boolean;
   /** Pro brand mark (your name or logo instead of the watermark); only ever drawn while the licence is Pro (licensed is true). */
   brandMark?: BrandMark;
+  /** True when Android takes images as an ArrayBuffer through `PolishotNative.postMessage` (no base64). */
+  binaryImages: boolean;
 }
 
 export interface BatchItem {
@@ -48,6 +50,7 @@ export interface BatchPayload {
   theme: ThemeName;
   export: ExportDefaults;
   brandMark?: BrandMark;
+  binaryImages: boolean;
 }
 
 export type NotifyKind = 'saved' | 'copied' | 'shared' | 'sent' | 'error';
@@ -66,6 +69,8 @@ export const MAX_IMAGE_SIDE = 65_535;
 export const MAX_WORDS = 20_000;
 export const MAX_WORD_CHARS = 4000;
 export const MAX_DOC_JSON_CHARS = 8_000_000;
+/** Largest document Android stores (BridgeValidation.MAX_DOC_JSON_CHARS); a bigger one is not worth sending. */
+export const MAX_SAVE_DOC_CHARS = 1_200_000;
 export const MAX_BATCH_ITEMS = 100;
 export const MAX_LOOK_JSON_CHARS = 400_000;
 /** A logo arrives as a data URL; Android stores it at most 1 MB, which is about 1.4 million base64 characters. */
@@ -159,6 +164,7 @@ export function parseLoad(raw: unknown, origin: string): LoadPayload | null {
     exportDefaults: parseExportDefaults(raw.exportDefaults),
     defaultPreset: preset,
     quickSendAvailable: raw.quickSendAvailable === true,
+    binaryImages: raw.binaryImages === true,
     ...(brandMark ? { brandMark } : {}),
   };
 }
@@ -185,6 +191,7 @@ export function parseBatch(raw: unknown, origin: string): BatchPayload | null {
     licensed: raw.licensed,
     theme: parseTheme(raw.theme),
     export: parseExportDefaults(raw.export),
+    binaryImages: raw.binaryImages === true,
     ...(batchMark ? { brandMark: batchMark } : {}),
   };
 }

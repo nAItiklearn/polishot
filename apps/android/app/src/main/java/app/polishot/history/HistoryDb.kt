@@ -47,6 +47,14 @@ data class HistoryFts(
     val ocrText: String,
 )
 
+/** The small fixed-size columns of a row, for code that must not touch the large JSON columns. */
+data class HistoryMeta(
+    val id: String,
+    val createdAt: Long,
+    val width: Int,
+    val height: Int,
+)
+
 /** Lightweight projection for the history grid: no OCR words and no document JSON. */
 data class HistoryRow(
     val id: String,
@@ -76,8 +84,22 @@ interface HistoryDao {
     )
     fun observeSearch(match: String, limit: Int): Flow<List<HistoryRow>>
 
-    @Query("SELECT * FROM history WHERE id = :id LIMIT 1")
-    suspend fun get(id: String): HistoryEntity?
+    // Never SELECT *: a row with a large document or word list can exceed the 2 MB cursor window, and reading it
+    // would throw. The big columns are read one at a time so a failure costs only that column, not the screenshot.
+    @Query("SELECT id, createdAt, width, height FROM history WHERE id = :id LIMIT 1")
+    suspend fun meta(id: String): HistoryMeta?
+
+    @Query("SELECT docJson FROM history WHERE id = :id LIMIT 1")
+    suspend fun docJson(id: String): String?
+
+    @Query("SELECT wordsJson FROM history WHERE id = :id LIMIT 1")
+    suspend fun wordsJson(id: String): String?
+
+    @Query("UPDATE history SET docJson = NULL WHERE id = :id")
+    suspend fun clearDoc(id: String): Int
+
+    @Query("UPDATE history SET wordsJson = NULL WHERE id = :id")
+    suspend fun clearWords(id: String): Int
 
     @Query("UPDATE history SET docJson = :docJson WHERE id = :id")
     suspend fun updateDoc(id: String, docJson: String): Int

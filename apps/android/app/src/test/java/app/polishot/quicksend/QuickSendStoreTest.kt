@@ -1,6 +1,8 @@
 package app.polishot.quicksend
 
 import app.polishot.license.InMemorySecretStore
+import app.polishot.license.SecretStore
+import app.polishot.license.SecretUnavailableException
 import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -74,6 +76,78 @@ class QuickSendStoreTest {
         secrets.write(damaged)
         val reread = QuickSendStore(secrets)
         assertEquals(listOf("Good"), reread.pairs().map { it.peerName })
+    }
+
+    /** A store whose read fails on demand, the way a busy Keystore does; every write is counted. */
+    private class FlakySecrets(private val inner: InMemorySecretStore = InMemorySecretStore()) : SecretStore {
+        @Volatile var unavailable = false
+        var writes = 0
+        var clears = 0
+
+        override fun read(): String? {
+            if (unavailable) throw SecretUnavailableException()
+            return inner.read()
+        }
+
+        override fun write(value: String) {
+            writes++
+            inner.write(value)
+        }
+
+        override fun clear() {
+            clears++
+            inner.clear()
+        }
+    }
+
+    @Test
+    fun `a busy Keystore never replaces the identity or the pairs`() {
+        val secrets = FlakySecrets()
+        val store = QuickSendStore(secrets)
+        val identity = store.identity()
+        store.addPair(pairRecord("Desk PC"))
+        val writesBefore = secrets.writes
+
+        // A new process starts while the Keystore is busy: nothing may be generated, written or cleared.
+        secrets.unavailable = true
+        val restarted = QuickSendStore(secrets)
+        try {
+            restarted.identity()
+            org.junit.Assert.fail("expected SecretUnavailableException")
+        } catch (expected: SecretUnavailableException) {
+            // reported to the caller, who retries later
+        }
+        try {
+            restarted.pairs()
+            org.junit.Assert.fail("expected SecretUnavailableException")
+        } catch (expected: SecretUnavailableException) {
+            // same
+        }
+        assertEquals("nothing was written while the secret was unreadable", writesBefore, secrets.writes)
+        assertEquals(0, secrets.clears)
+
+        // When the Keystore answers again, the same instance gets the original identity and pairing back.
+        secrets.unavailable = false
+        assertEquals(identity.id, restarted.identity().id)
+        assertEquals(listOf("Desk PC"), restarted.pairs().map { it.peerName })
+    }
+
+    @Test
+    fun `adding a pair while the Keystore is busy fails without losing the others`() {
+        val secrets = FlakySecrets()
+        val store = QuickSendStore(secrets)
+        store.addPair(pairRecord("Keep me"))
+
+        secrets.unavailable = true
+        val fresh = QuickSendStore(secrets)
+        try {
+            fresh.addPair(pairRecord("New one"))
+            org.junit.Assert.fail("expected SecretUnavailableException")
+        } catch (expected: SecretUnavailableException) {
+            // fine
+        }
+        secrets.unavailable = false
+        assertEquals(listOf("Keep me"), QuickSendStore(secrets).pairs().map { it.peerName })
     }
 
     @Test

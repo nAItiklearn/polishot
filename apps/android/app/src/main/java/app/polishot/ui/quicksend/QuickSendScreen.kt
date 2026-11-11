@@ -4,10 +4,12 @@ import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import app.polishot.R
 import app.polishot.quicksend.DeviceId
 import app.polishot.quicksend.NearbyDevice
@@ -62,11 +65,16 @@ fun QuickSendScreen(
     onRename: (String) -> Unit,
     onAnswerOffer: (Boolean) -> Unit,
     onAnswerPairing: (Boolean) -> Unit,
+    permissionBlocked: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var removing by remember { mutableStateOf<PairedDevice?>(null) }
 
-    Scaffold(modifier = modifier, containerColor = MaterialTheme.colorScheme.background) { inner ->
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+    ) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -123,7 +131,13 @@ fun QuickSendScreen(
                         onClick = onRequestPermission,
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 48.dp),
                         shape = RoundedCornerShape(12.dp),
-                    ) { Text(stringResource(R.string.quicksend_permission_action)) }
+                    ) {
+                        Text(
+                            stringResource(
+                                if (permissionBlocked) R.string.quicksend_permission_settings else R.string.quicksend_permission_action,
+                            ),
+                        )
+                    }
                 }
             } else {
                 Text(
@@ -185,6 +199,7 @@ fun QuickSendScreen(
     state.pairing?.let { prompt ->
         AlertDialog(
             onDismissRequest = { onAnswerPairing(false) },
+            properties = DialogProperties(dismissOnClickOutside = false),
             title = { Text(stringResource(R.string.quicksend_pairing_title)) },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {

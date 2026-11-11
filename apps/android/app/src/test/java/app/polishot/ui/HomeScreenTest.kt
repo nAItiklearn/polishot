@@ -115,6 +115,21 @@ class HomeScreenTest {
     }
 
     @Test
+    fun `before the history database has answered the grid area stays blank`() {
+        show(HomeState(items = emptyList(), query = "", sessionActive = false, loading = true))
+        compose.onNodeWithText("Nothing here yet").assertDoesNotExist()
+        compose.onNodeWithText("No screenshot contains that text.").assertDoesNotExist()
+        // The actions are usable straight away.
+        compose.onNodeWithText("Capture").assertIsDisplayed()
+    }
+
+    @Test
+    fun `once loaded an empty history shows the empty state`() {
+        show(HomeState(items = emptyList(), query = "", sessionActive = false, loading = false))
+        compose.onNodeWithText("Nothing here yet").assertIsDisplayed()
+    }
+
+    @Test
     fun `a search without matches says so`() {
         show(HomeState(items = emptyList(), query = "invoice", sessionActive = false))
         compose.onNodeWithText("No screenshot contains that text.").assertIsDisplayed()

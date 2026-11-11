@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
@@ -52,6 +53,12 @@ import kotlinx.coroutines.launch
  *  - `MediaProjection.registerCallback` happens before `createVirtualDisplay`;
  *  - the mediaProjection foreground service is started before `getMediaProjection`.
  *
+ * Threading: the main thread owns the session lifecycle and the UI; a single worker thread receives frames and
+ * grabs them. Everything that touches the projection, the virtual display, the image reader or the held frame
+ * happens under [sessionLock], so ending a session on the main thread can never close a reader while the worker
+ * is still converting one of its frames. Work on the worker is wrapped so that any Throwable (including an
+ * out-of-memory while converting a large frame) ends the capture with a message instead of killing the app.
+ *
  * Pixels never leave the device: the frame is written to app-private storage and opened in the editor.
  */
 class CaptureService : Service() {
@@ -61,17 +68,21 @@ class CaptureService : Service() {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    @Volatile private var projection: MediaProjection? = null
-    private var projectionCallback: MediaProjection.Callback? = null
-    @Volatile private var virtualDisplay: VirtualDisplay? = null
-    @Volatile private var imageReader: ImageReader? = null
-    private var displaySize = ScreenSize(0, 0, 0)
-    private var visibilityJob: Job? = null
+    private val sessionLock = Any()
 
-    private val frameLock = Any()
+    // Guarded by sessionLock.
+    private var projection: MediaProjection? = null
+    private var projectionCallback: MediaProjection.Callback? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+    private var displaySize = ScreenSize(0, 0, 0)
     private var latestImage: Image? = null
     private var latestAtMillis = 0L
 
+    /** False while the captured content is not visible (single-app capture whose app went to the background). */
+    @Volatile private var contentVisible = true
+
+    private var visibilityJob: Job? = null
     private var bubble: CaptureBubble? = null
     private var capturing = false
 
@@ -103,21 +114,30 @@ class CaptureService : Service() {
         }
         when (intent.action) {
             ACTION_START -> startSession(intent)
-            ACTION_CAPTURE -> mainHandler.post { captureNow() }
+            // From the notification: the notification shade is still closing, so wait longer before grabbing.
+            ACTION_CAPTURE -> mainHandler.post { captureNow(NOTIFICATION_SETTLE_MILLIS) }
             ACTION_STOP -> endSession()
             else -> stopSelf()
         }
         return START_NOT_STICKY
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Rotation or folding changed the screen: put the bubble back on a visible edge.
+        bubble?.reclamp()
+    }
+
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         releaseProjection()
         bubble?.detach()
         bubble = null
         CaptureSession.setActive(false)
         uiScope.cancel()
         ioScope.cancel()
-        workerThread.quitSafely()
+        if (::worker.isInitialized) worker.removeCallbacksAndMessages(null)
+        if (::workerThread.isInitialized) workerThread.quitSafely()
         super.onDestroy()
     }
 
@@ -149,6 +169,7 @@ class CaptureService : Service() {
         }
 
         releaseProjection() // a second consent while a session runs replaces it
+        contentVisible = true
         try {
             val manager = getSystemService(MediaProjectionManager::class.java)
             // The framework annotates the result @Nullable on newer API levels; treat null like any other failure.
@@ -159,12 +180,24 @@ class CaptureService : Service() {
                     // The user ended sharing from the system chip, or the system revoked it.
                     mainHandler.post { endSession() }
                 }
+
+                // API 34+: the captured app moved out of view (single-app sharing). Nothing to grab until it returns.
+                override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                    contentVisible = isVisible
+                }
+
+                // API 34+: the captured content changed size (rotation, window resize): follow it.
+                override fun onCapturedContentResize(width: Int, height: Int) {
+                    worker.post { runCatching { resizeIfNeeded() } }
+                }
             }
             p.registerCallback(callback, worker) // before createVirtualDisplay
-            projection = p
-            projectionCallback = callback
-            openDisplay(p)
-        } catch (e: RuntimeException) {
+            synchronized(sessionLock) {
+                projection = p
+                projectionCallback = callback
+                openDisplayLocked(p)
+            }
+        } catch (e: Exception) {
             Log.w(TAG, "projection setup failed: ${e.javaClass.simpleName}")
             toast(R.string.capture_failed)
             endSession()
@@ -173,6 +206,7 @@ class CaptureService : Service() {
 
         CaptureSession.setActive(true)
         showBubbleIfEnabled()
+        if (!polishotApp.settings.settings.value.bubbleEnabled) toast(R.string.capture_started_no_bubble)
         visibilityJob?.cancel()
         visibilityJob = uiScope.launch {
             CaptureSession.editorVisible.collect { visible ->
@@ -188,40 +222,51 @@ class CaptureService : Service() {
     private fun endSession() {
         visibilityJob?.cancel()
         visibilityJob = null
+        mainHandler.removeCallbacksAndMessages(null)
+        worker.removeCallbacksAndMessages(null)
         releaseProjection()
         bubble?.detach()
         bubble = null
+        capturing = false
         CaptureSession.setActive(false)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
+    /** Safe from any thread; after it returns no frame, reader or display of the old projection is in use. */
     private fun releaseProjection() {
-        synchronized(frameLock) {
-            latestImage?.close()
+        val p: MediaProjection?
+        val callback: MediaProjection.Callback?
+        synchronized(sessionLock) {
+            runCatching { latestImage?.close() }
             latestImage = null
             latestAtMillis = 0L
+            runCatching { virtualDisplay?.release() }
+            virtualDisplay = null
+            imageReader?.let { reader ->
+                runCatching { reader.setOnImageAvailableListener(null, null) }
+                runCatching { reader.close() }
+            }
+            imageReader = null
+            p = projection
+            callback = projectionCallback
+            projection = null
+            projectionCallback = null
         }
-        virtualDisplay?.release()
-        virtualDisplay = null
-        imageReader?.setOnImageAvailableListener(null, null)
-        imageReader?.close()
-        imageReader = null
-        val p = projection
-        val cb = projectionCallback
-        projection = null
-        projectionCallback = null
         if (p != null) {
-            if (cb != null) runCatching { p.unregisterCallback(cb) }
+            if (callback != null) runCatching { p.unregisterCallback(callback) }
             runCatching { p.stop() }
         }
     }
+
+    private fun hasProjection(): Boolean = synchronized(sessionLock) { projection != null }
 
     /* ---------------------------------------------------------------------------------------- */
     /* Display and frames                                                                         */
     /* ---------------------------------------------------------------------------------------- */
 
-    private fun openDisplay(p: MediaProjection) {
+    /** Caller holds [sessionLock]. */
+    private fun openDisplayLocked(p: MediaProjection) {
         val size = ScreenMetrics.real(this)
         val reader = newReader(size)
         // createVirtualDisplay is called once per projection (Android 14+); later rotations resize it.
@@ -245,15 +290,17 @@ class CaptureService : Service() {
         return reader
     }
 
-    /** Keeps only the newest frame; older ones are closed so the producer never stalls. */
+    /** Keeps only the newest frame; older ones are closed so the producer never stalls. Worker thread. */
     private fun onFrame(reader: ImageReader) {
-        val image = try {
-            reader.acquireLatestImage()
-        } catch (e: IllegalStateException) {
-            null
-        } ?: return
-        synchronized(frameLock) {
-            latestImage?.close()
+        synchronized(sessionLock) {
+            // The reader may have been closed by endSession a moment ago.
+            if (reader !== imageReader) return
+            val image = try {
+                reader.acquireLatestImage()
+            } catch (e: IllegalStateException) {
+                null
+            } ?: return
+            runCatching { latestImage?.close() }
             latestImage = image
             latestAtMillis = SystemClock.uptimeMillis()
         }
@@ -261,41 +308,59 @@ class CaptureService : Service() {
 
     /** After a rotation or fold the virtual display must match the screen again. Runs on the worker thread. */
     private fun resizeIfNeeded(): Boolean {
-        val size = ScreenMetrics.real(this)
-        if (size == displaySize || size.width <= 0 || size.height <= 0) return false
-        val display = virtualDisplay ?: return false
-        val oldReader = imageReader
-        val reader = newReader(size)
-        display.resize(size.width, size.height, size.densityDpi)
-        display.surface = reader.surface
-        imageReader = reader
-        displaySize = size
-        synchronized(frameLock) {
-            latestImage?.close()
+        synchronized(sessionLock) {
+            val size = ScreenMetrics.real(this)
+            if (size == displaySize || size.width <= 0 || size.height <= 0) return false
+            val display = virtualDisplay ?: return false
+            val oldReader = imageReader
+            val reader = newReader(size)
+            display.resize(size.width, size.height, size.densityDpi)
+            display.surface = reader.surface
+            imageReader = reader
+            displaySize = size
+            runCatching { latestImage?.close() }
             latestImage = null
             latestAtMillis = 0L
+            oldReader?.let {
+                runCatching { it.setOnImageAvailableListener(null, null) }
+                runCatching { it.close() }
+            }
+            return true
         }
-        oldReader?.setOnImageAvailableListener(null, null)
-        oldReader?.close()
-        return true
     }
 
     /* ---------------------------------------------------------------------------------------- */
     /* Capture                                                                                    */
     /* ---------------------------------------------------------------------------------------- */
 
-    /** Main thread. Hides the bubble, waits for a frame without it, then saves and opens the editor. */
-    private fun captureNow() {
-        if (capturing || projection == null) return
+    /**
+     * Main thread. Hides the bubble, waits [settleMillis] for the screen to settle without it (a notification shade
+     * needs longer to roll up than a bubble needs to vanish), then waits for a fresh frame, saves it and opens the
+     * editor.
+     */
+    private fun captureNow(settleMillis: Long = SETTLE_MILLIS) {
+        if (capturing || !hasProjection()) return
         capturing = true
         bubble?.hideForCapture()
-        val hiddenAt = SystemClock.uptimeMillis()
-        worker.postDelayed({ grabFrame(hiddenAt, 0) }, SETTLE_MILLIS)
+        // A frame counts as "without the bubble / shade" when it arrived after the settle time.
+        val hiddenAt = SystemClock.uptimeMillis() + (settleMillis - SETTLE_MILLIS).coerceAtLeast(0L)
+        worker.postDelayed({ grabFrame(hiddenAt, 0) }, settleMillis)
     }
 
+    /** Worker thread. Never lets an exception escape: a failed grab ends the capture with a message. */
     private fun grabFrame(hiddenAt: Long, attempt: Int) {
-        if (projection == null) {
+        try {
+            grabFrameChecked(hiddenAt, attempt)
+        } catch (t: Throwable) {
+            // Includes OutOfMemoryError while converting a very large frame.
+            Log.w(TAG, "frame grab failed: ${t.javaClass.simpleName}")
             finishCapture(null)
+        }
+    }
+
+    private fun grabFrameChecked(hiddenAt: Long, attempt: Int) {
+        if (!hasProjection()) {
+            finishCapture(null, silent = true) // the session ended while we were waiting
             return
         }
         if (resizeIfNeeded()) {
@@ -303,11 +368,11 @@ class CaptureService : Service() {
             worker.postDelayed({ grabFrame(SystemClock.uptimeMillis(), attempt + 1) }, SETTLE_MILLIS)
             return
         }
-        val bitmap: Bitmap? = synchronized(frameLock) {
+        val bitmap: Bitmap? = synchronized(sessionLock) {
             val image = latestImage
             val fresh = image != null && latestAtMillis >= hiddenAt + FRESH_GUARD_MILLIS
             // After the last attempt any frame is better than none (a perfectly static screen sends no new frame).
-            if (image != null && (fresh || attempt >= MAX_ATTEMPTS)) FrameConverter.toBitmap(image) else null
+            if (image != null && contentVisible && (fresh || attempt >= MAX_ATTEMPTS)) FrameConverter.toBitmap(image) else null
         }
         if (bitmap != null) {
             saveAndOpen(bitmap)
@@ -318,39 +383,55 @@ class CaptureService : Service() {
         }
     }
 
+    /**
+     * Writes the PNG, opens the editor the moment it exists, and only then writes the thumbnail and the history row
+     * (the editor registers the row itself if it gets there first).
+     */
     private fun saveAndOpen(bitmap: Bitmap) {
         val app = polishotApp
         ioScope.launch {
-            val id = try {
-                val saved = app.captures.save(bitmap)
-                app.history.register(saved.id, saved.width, saved.height)
-                saved.id
+            var saved: SavedCapture? = null
+            try {
+                saved = app.captures.savePng(bitmap)
             } catch (e: Exception) {
                 Log.w(TAG, "saving the capture failed: ${e.javaClass.simpleName}")
-                null
+            } catch (e: OutOfMemoryError) {
+                Log.w(TAG, "saving the capture ran out of memory")
+            }
+            mainHandler.post { finishCapture(saved?.id) }
+            try {
+                if (saved != null) {
+                    app.captures.writeThumbnail(saved.id, bitmap)
+                    app.history.register(saved.id, saved.width, saved.height)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "thumbnail or history failed: ${e.javaClass.simpleName}")
+            } catch (e: OutOfMemoryError) {
+                Log.w(TAG, "thumbnail ran out of memory")
             } finally {
                 bitmap.recycle()
             }
-            mainHandler.post { finishCapture(id) }
         }
     }
 
     /** Main thread. [id] is the saved capture, or null when the grab failed. */
-    private fun finishCapture(id: String?) {
+    private fun finishCapture(id: String?, silent: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { finishCapture(id) }
+            mainHandler.post { finishCapture(id, silent) }
             return
         }
         capturing = false
         if (id == null) {
-            toast(R.string.capture_failed)
+            if (!silent) toast(R.string.capture_failed)
             bubble?.showAgain()
             return
         }
         try {
-            // The (invisible) overlay window is still attached here, which is what lets a background service
+            // The (transparent) overlay window is still attached here, which is what lets a background service
             // start an activity on current Android versions.
-            startActivity(EditorActivity.intentFor(this, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(
+                EditorActivity.intentFor(this, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            )
         } catch (e: RuntimeException) {
             Log.w(TAG, "editor launch refused: ${e.javaClass.simpleName}")
         }
@@ -362,7 +443,7 @@ class CaptureService : Service() {
     }
 
     private fun showBubbleIfEnabled() {
-        if (projection == null) return
+        if (!hasProjection()) return
         val enabled = polishotApp.settings.settings.value.bubbleEnabled
         if (!enabled || !Settings.canDrawOverlays(this)) return
         val b = bubble ?: CaptureBubble(
@@ -424,7 +505,7 @@ class CaptureService : Service() {
         val open = PendingIntent.getActivity(
             this,
             3,
-            EditorActivity.intentFor(this, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            EditorActivity.intentFor(this, id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_READY)
@@ -459,6 +540,9 @@ class CaptureService : Service() {
 
         private const val READER_BUFFERS = 3
         private const val SETTLE_MILLIS = 170L
+
+        /** The notification shade takes roughly this long to roll up after the Capture action is tapped. */
+        private const val NOTIFICATION_SETTLE_MILLIS = 450L
         private const val POLL_MILLIS = 60L
         private const val FRESH_GUARD_MILLIS = 70L
         private const val MAX_ATTEMPTS = 8

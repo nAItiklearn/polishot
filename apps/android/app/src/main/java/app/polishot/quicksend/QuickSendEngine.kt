@@ -9,6 +9,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Why a quick-send operation did not complete, reduced to what the user can act on. */
 enum class ProblemKind {
@@ -103,6 +104,9 @@ class QuickSendEngine(
     private val slots = Semaphore(MAX_CONNECTIONS)
     private var server: ServerSocket? = null
 
+    /** True while a pairing (either direction) waits for its user; a second one is refused meanwhile. */
+    private val pairingInFlight = AtomicBoolean(false)
+
     /** True only while the pairing screen is open. */
     @Volatile var pairingOpen: Boolean = false
 
@@ -135,12 +139,23 @@ class QuickSendEngine(
     }
 
     private fun acceptLoop(s: ServerSocket) {
+        var failures = 0
         while (!s.isClosed) {
             val socket = try {
                 s.accept()
             } catch (e: IOException) {
-                return
+                // Closing the listener ends the loop; any other error (a connection reset while being accepted, a
+                // momentary shortage of file descriptors) must not silently stop the phone from receiving.
+                if (s.isClosed || ++failures > MAX_ACCEPT_FAILURES) return
+                try {
+                    Thread.sleep(ACCEPT_RETRY_MILLIS)
+                } catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return
+                }
+                continue
             }
+            failures = 0
             if (!slots.tryAcquire()) {
                 runCatching { socket.close() } // too many at once: refuse instead of queueing
                 continue
@@ -167,7 +182,7 @@ class QuickSendEngine(
                 identity = store.identity(),
                 localName = Content.cleanDeviceName(ownName()),
                 pairs = store.pairs(),
-                allowPairing = pairingOpen,
+                allowPairing = pairingOpen && !pairingInFlight.get(),
                 rateLimiter = limiter,
                 config = config,
             )
@@ -179,6 +194,13 @@ class QuickSendEngine(
             prompts.onProblem(ProblemKind.from(e))
         } catch (e: IOException) {
             prompts.onProblem(ProblemKind.Connection)
+        } catch (e: OutOfMemoryError) {
+            prompts.onProblem(ProblemKind.TooLarge)
+        } catch (e: Exception) {
+            // Keystore trouble, a host callback that threw: one failed connection must not end the listener thread.
+            prompts.onProblem(ProblemKind.Failed)
+        } finally {
+            runCatching { socket.close() }
         }
     }
 
@@ -202,23 +224,32 @@ class QuickSendEngine(
             prompts.onProblem(ProblemKind.from(e))
         } catch (e: IOException) {
             prompts.onProblem(ProblemKind.Connection)
+        } catch (e: Exception) {
+            prompts.onProblem(ProblemKind.Failed)
+        } finally {
+            runCatching { socket.close() }
         }
     }
 
     private fun finishPairing(pending: PendingPairing) {
-        val matches = try {
-            prompts.confirmPairing(pending.sas, pending.peerName, pending.peerId)
-        } catch (e: RuntimeException) {
-            pending.cancel()
-            throw e
-        }
+        pairingInFlight.set(true)
         try {
-            // With `false` this tells the peer and throws PAIRING_REJECTED.
-            val record = pending.confirm(matches)
-            store.addPair(record)
-            prompts.onPaired(record)
-        } catch (e: QuickSendException) {
-            prompts.onProblem(ProblemKind.from(e))
+            val matches = try {
+                prompts.confirmPairing(pending.sas, pending.peerName, pending.peerId)
+            } catch (e: RuntimeException) {
+                pending.cancel()
+                throw e
+            }
+            try {
+                // With `false` this tells the peer and throws PAIRING_REJECTED.
+                val record = pending.confirm(matches)
+                store.addPair(record)
+                prompts.onPaired(record)
+            } catch (e: QuickSendException) {
+                prompts.onProblem(ProblemKind.from(e))
+            }
+        } finally {
+            pairingInFlight.set(false)
         }
     }
 
@@ -246,6 +277,10 @@ class QuickSendEngine(
             SendOutcome.Sent
         } catch (e: QuickSendException) {
             SendOutcome.Failed(if (watchdog.hasFired) ProblemKind.Connection else ProblemKind.from(e))
+        } catch (e: OutOfMemoryError) {
+            SendOutcome.Failed(ProblemKind.TooLarge)
+        } catch (e: Exception) {
+            SendOutcome.Failed(if (watchdog.hasFired) ProblemKind.Connection else ProblemKind.Failed)
         } finally {
             watchdog.stop()
             runCatching { socket.close() }
@@ -268,5 +303,7 @@ class QuickSendEngine(
         const val CONNECT_TIMEOUT_MILLIS = 5_000
         const val MAX_CONNECTIONS = 4
         private const val BACKLOG = 8
+        private const val MAX_ACCEPT_FAILURES = 20
+        private const val ACCEPT_RETRY_MILLIS = 100L
     }
 }

@@ -208,14 +208,51 @@ update window covers this build.
 
 ### Behavioural clarifications
 
-- `saveImage`, `shareImage`, `copyImage`, `quickSend` take base64 **without** a `data:` prefix. Size limit: 50 MiB of base64
-  text. The MIME type must be `image/png`, `image/jpeg` or `image/webp` and must match the file signature, or the call is
-  rejected (logged without content, answered with `notify({ kind: 'error' })` only for saves). `copyImage` and `quickSend`
+- `saveImage`, `shareImage`, `copyImage`, `quickSend` take base64 **without** a `data:` prefix. Size limit: 24 MiB of base64
+  text (about 18 MiB of image; this was 50 MiB, see "Review pass" below). The MIME type must be `image/png`, `image/jpeg`
+  or `image/webp` and must match the file signature, or the call is rejected (logged without content, answered with
+  `notify({ kind: 'error' })` for every call the user waits on, see "Review pass"). `copyImage` and `quickSend`
   carry PNG. File names are reduced to a safe base name and the extension always follows the MIME type.
 - `saveDoc(id, docJson)` is called by the page about 800 ms after the last change and when the page is hidden. Android keeps
   the JSON as the screenshot's history document; it must be a version 1 `EditorDoc` whose `image.id` equals `id`.
 - Images are served at `https://appassets.androidplatform.net/capture/<id>.png` and are never cached (`Cache-Control: no-store`).
   The page's CSP has no remote origins; every request to another host is answered with 403 by the WebView client.
+
+### Review pass: a second transport, tighter limits, answers for every call (additive, one limit tightened)
+
+Every call in section 6 still works as written through `PolishotAndroid`; nothing was renamed or removed. What changed:
+
+- **Preferred transport: `window.PolishotNative.postMessage(message)`.** Android installs it with
+  `WebViewCompat.addWebMessageListener`, restricted to the origin `https://appassets.androidplatform.net`, main frame
+  only; messages from anywhere else never reach Android. `message` is either
+  - a **string**: a JSON object `{ "m": "<method>", ... }` using the same method names and argument names as the
+    interface (`id`, `mime`, `filename`, `base64`, `text`, `doc`, `done`, `total`, `failed`), or
+  - an **ArrayBuffer** carrying an image without base64: `u32 big-endian header length | header | image bytes`, the
+    header being UTF-8 JSON `{ "m": "saveImage" | "shareImage" | "copyImage" | "quickSend", "mime"?, "filename"? }`
+    (header at most 2048 bytes). Only these four methods may be sent as binary.
+  The `@JavascriptInterface` object `PolishotAndroid` stays installed as the fallback for a WebView without web
+  message listener support. A page should use `PolishotNative` when it exists and `PolishotAndroid` otherwise; the
+  validation behind both is the same code.
+- **`binaryImages: boolean`** (optional, in the `load` and `batch` payloads): `true` only when this WebView also
+  supports ArrayBuffer messages, meaning the page may send images as binary. Missing or `false` means send base64.
+- **`window.polishot.flush()`** (Android to page, optional): the page saves a pending document edit now. Android calls
+  it whenever the editor screen pauses (leaving the app, a call, back), so the last 800 ms of edits are not lost if the
+  process is killed while the app is in the background. A page without it behaves as before.
+- **Limits.** Base64 text per image: 24 MiB (was 50 MiB; decoding a bigger string needs several times its size in
+  memory, and a 3x PNG of a tall screenshot is 5 to 12 MiB). Binary image: 18 MiB. A text message: the base64 limit
+  plus 64 KiB. `saveDoc` document: 1,200,000 characters and 1,500,000 UTF-8 bytes (it shares one database row with the
+  OCR text, and a row over about 2 MB cannot be read back); a larger document is simply not stored and the
+  page keeps working. OCR text kept per screenshot: about 1,000,000 JSON characters; the end of a very long page is
+  dropped, never a broken row.
+- **Every call the user waits on is answered.** A rejection or failure of `saveImage`, `shareImage`, `copyImage`,
+  `copyText` or `quickSend` (bad type, over a limit, malformed message, out of memory, a failing host) now produces
+  `notify({ kind: 'error', message })`, where before only saves did. Refused autosaves (`saveDoc`) and refused
+  `batchProgress` or `requestOcr` calls stay silent.
+- **Strictness.** Base64 must be the plain RFC 4648 alphabet without line breaks (padding optional); the text is decoded
+  as a stream into an array of exactly the decoded size, so the peak memory is the string plus the result.
+  Any malformed text message, unknown method or malformed binary frame is refused and reported once.
+- **Calls run in order.** Bridge calls are handled one at a time in the order they were made, off the WebView thread,
+  so a large image never blocks the page and two saves never overtake each other.
 
 ## Desktop scrolling capture, GIF recording and quick send (apps/desktop)
 

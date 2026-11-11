@@ -3,10 +3,12 @@ package app.polishot.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -22,6 +24,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +52,7 @@ import app.polishot.ui.components.ScreenHeader
 import app.polishot.ui.components.SectionLabel
 import app.polishot.ui.components.SegmentedChoice
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 /**
  * Default export format, quality and scale, the default canvas preset, the theme and the capture bubble.
@@ -58,7 +70,11 @@ fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(modifier = modifier, containerColor = MaterialTheme.colorScheme.background) { inner ->
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+    ) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -81,26 +97,9 @@ fun SettingsScreen(
             )
 
             if (settings.exportFormat != ExportFormat.Png) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        stringResource(R.string.settings_quality),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "${settings.exportQuality}%",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Slider(
-                    value = settings.exportQuality.toFloat(),
-                    onValueChange = { v -> onChange { it.copy(exportQuality = v.roundToInt()) } },
-                    valueRange = AppSettings.MIN_QUALITY.toFloat()..100f,
-                    modifier = Modifier.testTag("settings-quality"),
+                QualityControl(
+                    quality = settings.exportQuality,
+                    onCommit = { q -> onChange { it.copy(exportQuality = q) } },
                 )
             }
 
@@ -233,14 +232,9 @@ private fun BrandMarkSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
-        BrandMarkMode.Text -> OutlinedTextField(
-            value = settings.brandMarkText,
-            onValueChange = { v -> onChange { it.copy(brandMarkText = v) } },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("brand-text"),
-            singleLine = true,
-            label = { Text(stringResource(R.string.brand_text_label)) },
-            supportingText = { Text(stringResource(R.string.brand_text_hint, BrandMarkRules.MAX_TEXT)) },
-            shape = RoundedCornerShape(12.dp),
+        BrandMarkMode.Text -> BrandTextField(
+            saved = settings.brandMarkText,
+            onCommit = { v -> onChange { it.copy(brandMarkText = v) } },
         )
         BrandMarkMode.Logo -> Column(modifier = Modifier.padding(top = 12.dp)) {
             Text(
@@ -282,3 +276,66 @@ private fun PresetRow(label: String, selected: Boolean, onSelect: () -> Unit) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
     }
 }
+
+/** Export quality for JPEG and WebP. The slider moves a local value; the setting is written when the finger lifts. */
+@Composable
+private fun QualityControl(quality: Int, onCommit: (Int) -> Unit) {
+    var shown by remember(quality) { mutableFloatStateOf(quality.toFloat()) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.settings_quality),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "${shown.roundToInt()}%",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Slider(
+        value = shown,
+        onValueChange = { shown = it },
+        onValueChangeFinished = { onCommit(shown.roundToInt()) },
+        valueRange = AppSettings.MIN_QUALITY.toFloat()..100f,
+        modifier = Modifier.testTag("settings-quality"),
+    )
+}
+
+/**
+ * The brand-mark name. Typing edits a local value (so the cursor never jumps while the settings round-trip through
+ * storage); the setting is written once the user pauses for [BRAND_TEXT_DEBOUNCE_MILLIS], and a pending edit is
+ * written when the field leaves the screen.
+ */
+@Composable
+private fun BrandTextField(saved: String, onCommit: (String) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(saved) }
+    val latestText by rememberUpdatedState(text)
+    val latestSaved by rememberUpdatedState(saved)
+    val latestCommit by rememberUpdatedState(onCommit)
+
+    LaunchedEffect(text) {
+        if (text != saved) {
+            delay(BRAND_TEXT_DEBOUNCE_MILLIS)
+            latestCommit(text)
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { if (latestText != latestSaved) latestCommit(latestText) }
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = BrandMarkRules.limitWhileTyping(it) },
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("brand-text"),
+        singleLine = true,
+        label = { Text(stringResource(R.string.brand_text_label)) },
+        supportingText = { Text(stringResource(R.string.brand_text_hint, BrandMarkRules.MAX_TEXT)) },
+        shape = RoundedCornerShape(12.dp),
+    )
+}
+
+internal const val BRAND_TEXT_DEBOUNCE_MILLIS = 400L

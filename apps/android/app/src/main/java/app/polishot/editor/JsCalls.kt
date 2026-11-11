@@ -24,6 +24,8 @@ data class LoadPayload(
     val quickSendAvailable: Boolean = false,
     /** Pro brand mark; null for Free, for Pro without a mark, and whenever the licence is not Pro. */
     val brandMark: BrandMarkPayload? = null,
+    /** True when the page may send images as an ArrayBuffer through `PolishotNative.postMessage` (no base64). */
+    val binaryImages: Boolean = false,
 )
 
 /** One image in a batch beautify run. */
@@ -61,7 +63,8 @@ object JsCalls {
             .put("exportDefaults", exportDefaults(payload.exportDefaults))
             .put("defaultPreset", payload.defaultPreset)
             .put("quickSendAvailable", payload.quickSendAvailable)
-        if (payload.words != null) obj.put("words", org.json.JSONArray(OcrMapping.toJson(payload.words)))
+            .put("binaryImages", payload.binaryImages)
+        if (payload.words != null) obj.put("words", OcrMapping.toJsonArray(payload.words))
         if (payload.docJson != null) obj.put("docJson", payload.docJson)
         if (payload.brandMark != null) obj.put("brandMark", brandMarkJson(payload.brandMark))
         return call("load", escapeSeparators(obj.toString()))
@@ -83,6 +86,7 @@ object JsCalls {
         theme: String,
         defaults: ExportDefaults,
         brandMark: BrandMarkPayload? = null,
+        binaryImages: Boolean = false,
     ): String {
         val list = org.json.JSONArray()
         for (item in items) {
@@ -99,10 +103,14 @@ object JsCalls {
             .put("licensed", licensed)
             .put("theme", theme)
             .put("export", exportDefaults(defaults))
+            .put("binaryImages", binaryImages)
         if (lookJson != null) obj.put("lookJson", lookJson)
         if (brandMark != null) obj.put("brandMark", brandMarkJson(brandMark))
         return call("batch", escapeSeparators(obj.toString()))
     }
+
+    /** `window.polishot.flush()`: the page saves a pending document edit now (the screen is about to go away). */
+    fun flush(): String = call("flush")
 
     /** `window.polishot.onBack()` returns true when the page consumed the back press (it closed a sheet). */
     fun onBack(): String = call("onBack")

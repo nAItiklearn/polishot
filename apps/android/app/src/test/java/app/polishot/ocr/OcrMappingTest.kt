@@ -117,4 +117,46 @@ class OcrMappingTest {
         assertNull(OcrMapping.fromJson("{}"))
         assertNull(OcrMapping.fromJson("""[{"text":"x"}]"""))
     }
+
+    // ---- fitForStorage: a history row must always fit the database cursor window ----------------
+
+    private fun word(text: String, line: Int = 0) = OcrWord(text, OcrBox(1234.5, 1234.5, 123.4, 56.7), line)
+
+    @Test
+    fun `a small word list is stored whole`() {
+        val words = listOf(word("one"), word("two", 1))
+        assertEquals(words, OcrMapping.fitForStorage(words))
+        assertEquals(emptyList<OcrWord>(), OcrMapping.fitForStorage(emptyList()))
+    }
+
+    @Test
+    fun `an oversized word list keeps the start of the page`() {
+        // Each ten-letter word is budgeted at 106 characters (96 of structure plus the text), after 2 for the brackets.
+        val words = (0 until 50).map { word("abcdefghij") }
+        val kept = OcrMapping.fitForStorage(words, maxJsonChars = 1000)
+        assertEquals(9, kept.size)
+        assertEquals(words.subList(0, 9), kept)
+    }
+
+    @Test
+    fun `the stored json really stays under the budget`() {
+        val budget = 200_000
+        val words = (0 until 6000).map { word("word$it", it / 8) }
+        val kept = OcrMapping.fitForStorage(words, budget)
+        assertTrue("some words were dropped", kept.size < words.size)
+        assertTrue("json is ${OcrMapping.toJson(kept).length} chars", OcrMapping.toJson(kept).length <= budget)
+    }
+
+    @Test
+    fun `an enormous first word leaves nothing to store rather than a broken row`() {
+        val words = listOf(word("x".repeat(5000)), word("after"))
+        assertEquals(emptyList<OcrWord>(), OcrMapping.fitForStorage(words, maxJsonChars = 1000))
+    }
+
+    @Test
+    fun `the default budget matches the documented limit`() {
+        assertEquals(1_000_000, OcrMapping.MAX_STORED_JSON_CHARS)
+        val words = (0 until OcrMapping.MAX_WORDS).map { word("w$it") }
+        assertTrue(OcrMapping.toJson(OcrMapping.fitForStorage(words)).length <= OcrMapping.MAX_STORED_JSON_CHARS)
+    }
 }

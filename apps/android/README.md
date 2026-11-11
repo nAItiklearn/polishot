@@ -121,9 +121,11 @@ API 34 emulator. It signs with the repository secrets `POLISHOT_KEYSTORE_BASE64`
   several. Several run as a batch with your last look. Free runs up to 5 images at a time; Pro has no such limit.
 - **Editor.** A WebView loads the page from the app's assets through `WebViewAssetLoader` on
   `https://appassets.androidplatform.net`. File access and content access are off, every other host gets a 403, and
-  the page's CSP allows no remote origin. The page talks to Kotlin through one `@JavascriptInterface` object
-  (`PolishotAndroid`, CONTRACTS section 6) whose inputs are validated: size caps, an allow-list of image types that
-  must match the file's signature, and sanitised file names.
+  the page's CSP allows no remote origin. The page talks to Kotlin through a web message listener
+  (`PolishotNative.postMessage`, restricted to that one origin and the main frame; images travel as raw bytes, not
+  base64) and, on a WebView too old for that, through one `@JavascriptInterface` object (`PolishotAndroid`, CONTRACTS
+  section 6). Both end in the same checks: size caps, an allow-list of image types that must match the file's
+  signature, and sanitised file names. See docs/CONTRACT-CHANGES.md, "Review pass".
 - **Text and redaction.** ML Kit text recognition (bundled model, works offline) feeds the editor's one-tap
   "found N" redaction chip and the searchable history.
 - **History.** Room with an FTS4 index over the recognised text, stored only on the device. Backups are disabled.

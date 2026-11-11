@@ -46,9 +46,23 @@
         android:theme="@style/Theme.Polishot"
         android:usesCleartextTraffic="false">
 
+        <!--
+            The editor WebView only ever loads the app's own pages, so Safe Browsing (which would send URLs to Google
+            for checking) has nothing to protect and is switched off: no lookups, no extra latency.
+        -->
+        <meta-data
+            android:name="android.webkit.WebView.EnableSafeBrowsing"
+            android:value="false" />
+
         <!-- Home: Capture, Open image, history, Settings, License. The only entry point from the launcher. -->
+        <!--
+            Every configuration change is handled by the activity itself (rotation, font scale, language, dark
+            mode, ...). Recreating it would reset the screen and cancel an open pairing or incoming-offer prompt,
+            which wait on this process, not on the activity.
+        -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -65,7 +79,7 @@
         -->
         <activity
             android:name=".editor.EditorActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode"
             android:exported="false"
             android:launchMode="singleTask"
             android:taskAffinity="app.polishot.editor"
@@ -74,7 +88,7 @@
         <!-- Real target of the share-sheet entry below. Not exported itself; the alias is. -->
         <activity
             android:name=".share.ShareReceiverActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode"
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity=""
@@ -102,7 +116,7 @@
         <!-- "Send to" sheet over the editor: lists paired devices and sends the image. Not exported. -->
         <activity
             android:name=".quicksend.SendToDeviceActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection|colorMode"
             android:excludeFromRecents="true"
             android:exported="false"
             android:theme="@style/Theme.Polishot.Translucent" />

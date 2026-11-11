@@ -3,10 +3,12 @@ package app.polishot.ui.license
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,6 +24,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,6 +43,7 @@ import app.polishot.license.EntitlementReason
 import app.polishot.license.InvalidReason
 import app.polishot.ui.components.Panel
 import app.polishot.ui.components.ScreenHeader
+import kotlinx.coroutines.launch
 
 /**
  * Paste a key, see the edition and the end of the update window, remove the key.
@@ -49,7 +54,7 @@ import app.polishot.ui.components.ScreenHeader
 @Composable
 fun LicenseScreen(
     entitlement: Entitlement,
-    onActivate: (String) -> ActivationResult,
+    onActivate: suspend (String) -> ActivationResult,
     onDeactivate: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -57,9 +62,15 @@ fun LicenseScreen(
     var key by rememberSaveable { mutableStateOf("") }
     var failure by rememberSaveable { mutableStateOf<InvalidReason?>(null) }
     var confirmRemove by rememberSaveable { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val hasKey = entitlement.info != null
 
-    Scaffold(modifier = modifier, containerColor = MaterialTheme.colorScheme.background) { inner ->
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+    ) { inner ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -104,15 +115,22 @@ fun LicenseScreen(
                 }
                 Button(
                     onClick = {
-                        when (val result = onActivate(key)) {
-                            is ActivationResult.Success -> {
-                                key = ""
-                                failure = null
+                        busy = true
+                        scope.launch {
+                            try {
+                                when (val result = onActivate(key)) {
+                                    is ActivationResult.Success -> {
+                                        key = ""
+                                        failure = null
+                                    }
+                                    is ActivationResult.Failure -> failure = result.reason
+                                }
+                            } finally {
+                                busy = false
                             }
-                            is ActivationResult.Failure -> failure = result.reason
                         }
                     },
-                    enabled = key.isNotBlank(),
+                    enabled = key.isNotBlank() && !busy,
                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp).heightIn(min = 52.dp).testTag("license-activate"),
                     shape = RoundedCornerShape(14.dp),
                 ) {

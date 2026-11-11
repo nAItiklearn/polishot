@@ -2,6 +2,7 @@ package app.polishot.editor
 
 import app.polishot.ocr.OcrBox
 import app.polishot.ocr.OcrWord
+import app.polishot.settings.BrandMarkPayload
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -97,5 +98,75 @@ class JsCallsTest {
         val b = JSONObject(batch.substringAfter("batch(").removeSuffix(")"))
         assertEquals(1, b.getJSONArray("items").length())
         assertEquals("""{"padding":0.1}""", b.getString("lookJson"))
+    }
+
+    private fun payload(words: List<OcrWord>? = null, binary: Boolean? = null, mark: BrandMarkPayload? = null) =
+        if (binary == null) {
+            LoadPayload("x1", "/capture/x1.png", 10, 10, true, "light", words, null, ExportDefaults("png", 0.9, 1), "auto", brandMark = mark)
+        } else {
+            LoadPayload(
+                "x1", "/capture/x1.png", 10, 10, true, "light", words, null, ExportDefaults("png", 0.9, 1), "auto",
+                brandMark = mark, binaryImages = binary,
+            )
+        }
+
+    private fun loadObject(js: String) = JSONObject(js.substringAfter("polishot.load(").removeSuffix(")"))
+
+    @Test
+    fun `binaryImages is false unless the page can use the binary transport`() {
+        assertFalse(loadObject(JsCalls.load(payload())).getBoolean("binaryImages"))
+        assertTrue(loadObject(JsCalls.load(payload(binary = true))).getBoolean("binaryImages"))
+        assertFalse(loadObject(JsCalls.load(payload(binary = false))).getBoolean("binaryImages"))
+
+        val defaults = ExportDefaults("png", 0.9, 1)
+        val plain = JsCalls.batch(emptyList(), null, false, "light", defaults)
+        assertFalse(JSONObject(plain.substringAfter("batch(").removeSuffix(")")).getBoolean("binaryImages"))
+        val binary = JsCalls.batch(emptyList(), null, false, "light", defaults, binaryImages = true)
+        assertTrue(JSONObject(binary.substringAfter("batch(").removeSuffix(")")).getBoolean("binaryImages"))
+    }
+
+    @Test
+    fun `words travel as a JSON array inside the payload not as an escaped string`() {
+        val words = listOf(OcrWord("say \"hi\"", OcrBox(1.0, 2.0, 3.0, 4.0), 0), OcrWord("x\u2028y", OcrBox(5.0, 6.0, 7.0, 8.0), 1))
+        val js = JsCalls.load(payload(words))
+        val array = loadObject(js).getJSONArray("words")
+        assertEquals(2, array.length())
+        assertEquals("say \"hi\"", array.getJSONObject(0).getString("text"))
+        assertEquals("x\u2028y", array.getJSONObject(1).getString("text"))
+        assertFalse("U+2028 must not appear raw in script text", js.contains('\u2028'))
+    }
+
+    @Test
+    fun `an empty word list is sent as an empty array so the page knows OCR ran`() {
+        val array = loadObject(JsCalls.load(payload(emptyList()))).getJSONArray("words")
+        assertEquals(0, array.length())
+    }
+
+    @Test
+    fun `setWords round trips through the JSON the page parses`() {
+        val words = listOf(OcrWord("a", OcrBox(1.0, 2.0, 3.0, 4.0), 0))
+        val js = JsCalls.setWords(words)
+        val array = org.json.JSONArray(js.substringAfter("polishot.setWords(").removeSuffix(")"))
+        assertEquals("a", array.getJSONObject(0).getString("text"))
+        assertEquals(4.0, array.getJSONObject(0).getJSONObject("box").getDouble("h"), 0.0)
+    }
+
+    @Test
+    fun `flush and onBack are guarded calls without arguments`() {
+        assertEquals("window.polishot&&window.polishot.flush&&window.polishot.flush()", JsCalls.flush())
+        assertEquals("window.polishot&&window.polishot.onBack&&window.polishot.onBack()", JsCalls.onBack())
+    }
+
+    @Test
+    fun `a brand mark is included only when there is one`() {
+        assertFalse(loadObject(JsCalls.load(payload())).has("brandMark"))
+
+        val text = loadObject(JsCalls.load(payload(mark = BrandMarkPayload.Text("Jane \"J\" Doe")))).getJSONObject("brandMark")
+        assertEquals("text", text.getString("type"))
+        assertEquals("Jane \"J\" Doe", text.getString("text"))
+
+        val image = loadObject(JsCalls.load(payload(mark = BrandMarkPayload.Image("data:image/png;base64,AAAA")))).getJSONObject("brandMark")
+        assertEquals("image", image.getString("type"))
+        assertEquals("data:image/png;base64,AAAA", image.getString("src"))
     }
 }

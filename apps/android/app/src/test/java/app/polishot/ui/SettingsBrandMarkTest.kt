@@ -6,6 +6,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import app.polishot.settings.AppSettings
 import app.polishot.settings.BrandMarkMode
+import app.polishot.ui.settings.BRAND_TEXT_DEBOUNCE_MILLIS
 import app.polishot.ui.settings.SettingsScreen
 import app.polishot.ui.theme.PolishotTheme
 import org.junit.Assert.assertEquals
@@ -67,6 +68,9 @@ class SettingsBrandMarkTest {
     fun `typing a name reports the change`() {
         show(AppSettings(brandMarkMode = BrandMarkMode.Text), pro = true)
         compose.onNodeWithTag("brand-text").performScrollTo().performTextInput("Ada")
+        // Typing edits a local value; the setting is written once the user pauses.
+        assertEquals("", current.brandMarkText)
+        compose.mainClock.advanceTimeBy(BRAND_TEXT_DEBOUNCE_MILLIS + 100)
         compose.waitForIdle()
         assertEquals("Ada", current.brandMarkText)
     }

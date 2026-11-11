@@ -1,6 +1,7 @@
 package app.polishot.quicksend
 
 import app.polishot.license.SecretStore
+import app.polishot.license.SecretUnavailableException
 import java.util.Base64
 import org.json.JSONArray
 import org.json.JSONException
@@ -13,8 +14,10 @@ import org.json.JSONObject
  *
  *     { "v": 1, "identity": "<base64, 97 bytes>", "pairs": [ "<base64 PairRecord>", ... ] }
  *
- * The identity is created on first use. A document that cannot be read is treated as empty and replaced, which
- * makes this device a new device (its former pairs must be redone), the safe outcome for a damaged secret.
+ * The identity is created on first use. A document that is damaged for good is treated as empty and replaced, which
+ * makes this device a new device (its former pairs must be redone), the safe outcome for a damaged secret. A
+ * document that cannot be read *right now* ([SecretUnavailableException]: the Keystore is busy) is never replaced:
+ * the exception propagates, so a hiccup cannot destroy the identity and every pairing with it.
  */
 class QuickSendStore(private val secrets: SecretStore) {
     private class Data(val identity: Identity, val pairs: MutableList<PairRecord>)
@@ -61,7 +64,13 @@ class QuickSendStore(private val secrets: SecretStore) {
     }
 
     private fun read(): Data? {
-        val text = runCatching { secrets.read() }.getOrNull() ?: return null
+        val text = try {
+            secrets.read()
+        } catch (e: SecretUnavailableException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        } ?: return null
         return try {
             val json = JSONObject(text)
             if (json.getInt("v") != 1) return null

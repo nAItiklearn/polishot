@@ -42,3 +42,6 @@ apps/web-e2e-tmp/
 /*.png
 /*.jpg
 packages/editor/dist-playground/
+
+.vercel
+.env*

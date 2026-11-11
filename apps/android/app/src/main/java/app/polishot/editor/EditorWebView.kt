@@ -8,7 +8,11 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import app.polishot.capture.CaptureIds
 import app.polishot.capture.CaptureStore
 import java.io.ByteArrayInputStream
@@ -133,7 +137,55 @@ class EditorWebViewClient(
         WebResourceResponse("text/plain", "utf-8", status, reason, secureHeaders(), ByteArrayInputStream(ByteArray(0)))
 }
 
+/**
+ * Receives `PolishotNative.postMessage(...)` from the editor page and forwards it to the [EditorBridge].
+ *
+ * The WebView only delivers messages from the origins this listener was registered for, and this class checks again:
+ * the frame must be the main frame and the origin exactly the app's asset origin. Strings are JSON calls, array
+ * buffers are images with a small header (see [BridgeMessages]); anything else is ignored.
+ */
+class EditorMessageListener(private val bridge: EditorBridge) : WebViewCompat.WebMessageListener {
+    override fun onPostMessage(
+        view: WebView,
+        message: WebMessageCompat,
+        sourceOrigin: Uri,
+        isMainFrame: Boolean,
+        replyProxy: JavaScriptReplyProxy,
+    ) {
+        if (!isMainFrame || !EditorUrls.isTrusted(sourceOrigin)) return
+        when (message.type) {
+            WebMessageCompat.TYPE_STRING -> message.data?.let { bridge.onMessage(it) }
+            WebMessageCompat.TYPE_ARRAY_BUFFER ->
+                if (EditorWebViewFactory.supportsBinary()) bridge.onBinary(message.arrayBuffer)
+        }
+    }
+}
+
 object EditorWebViewFactory {
+    /** Name of the JavaScript object the page uses to reach the app: `window.PolishotNative.postMessage(...)`. */
+    const val NATIVE_NAME = "PolishotNative"
+
+    /** Name of the legacy JavaScript interface, used only when the WebView cannot do web message listeners. */
+    const val LEGACY_NAME = "PolishotAndroid"
+
+    /** True when the WebView can deliver an ArrayBuffer (an image without base64) to a message listener. */
+    fun supportsBinary(): Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_ARRAY_BUFFER)
+
+    /**
+     * Connects the page to [bridge]. Preferred: a web message listener restricted to the app's own origin, so only
+     * pages served by [EditorAssetsHandler] can call the app, and only in the main frame. A WebView too old for that
+     * gets the legacy `@JavascriptInterface` object instead. Returns true when the listener was installed.
+     * Call before the first page load.
+     */
+    fun installBridge(webView: WebView, bridge: EditorBridge): Boolean {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(webView, NATIVE_NAME, setOf(EditorUrls.ORIGIN), EditorMessageListener(bridge))
+            return true
+        }
+        webView.addJavascriptInterface(bridge, LEGACY_NAME)
+        return false
+    }
+
     fun assetLoader(context: Context, store: CaptureStore): WebViewAssetLoader =
         WebViewAssetLoader.Builder()
             .setDomain(EditorUrls.HOST)

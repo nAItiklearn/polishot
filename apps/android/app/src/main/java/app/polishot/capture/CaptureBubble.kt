@@ -18,6 +18,30 @@ import kotlin.math.hypot
 import kotlin.math.min
 
 /**
+ * Where the bubble may be. Pure arithmetic (no Android types) so JVM tests cover rotation, folding and tiny screens.
+ */
+internal object BubbleGeometry {
+    /** Keeps the whole bubble on screen. A screen smaller than the bubble pins it to the top-left corner. */
+    fun clamp(x: Int, y: Int, size: Int, screenWidth: Int, screenHeight: Int): Pair<Int, Int> =
+        x.coerceIn(0, (screenWidth - size).coerceAtLeast(0)) to y.coerceIn(0, (screenHeight - size).coerceAtLeast(0))
+
+    /** The resting x for the left or right edge, [margin] away from the edge. */
+    fun edgeX(right: Boolean, size: Int, margin: Int, screenWidth: Int): Int =
+        if (right) (screenWidth - size - margin).coerceAtLeast(margin) else margin
+
+    /** Restores a remembered edge and vertical position (as a 0..1 fraction of the free height) on any screen. */
+    fun restore(right: Boolean, yFraction: Float, size: Int, margin: Int, screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+        val x = edgeX(right, size, margin, screenWidth)
+        val y = (yFraction.coerceIn(0f, 1f) * (screenHeight - size).coerceAtLeast(0)).toInt()
+        return clamp(x, y, size, screenWidth, screenHeight)
+    }
+
+    /** The vertical position as the 0..1 fraction that [restore] understands. */
+    fun yFraction(y: Int, size: Int, screenHeight: Int): Float =
+        (y.toFloat() / (screenHeight - size).coerceAtLeast(1)).coerceIn(0f, 1f)
+}
+
+/**
  * The floating capture button: a draggable overlay window (TYPE_APPLICATION_OVERLAY, needs the "display over other
  * apps" permission) that snaps to the nearest screen edge when released. A tap calls [onTap].
  *
@@ -102,16 +126,29 @@ class CaptureBubble(
 
     private fun moveTo(x: Int, y: Int) {
         val screen = ScreenMetrics.real(context)
-        params.x = x.coerceIn(0, (screen.width - sizePx).coerceAtLeast(0))
-        params.y = y.coerceIn(0, (screen.height - sizePx).coerceAtLeast(0))
+        val (cx, cy) = BubbleGeometry.clamp(x, y, sizePx, screen.width, screen.height)
+        params.x = cx
+        params.y = cy
+        update()
+    }
+
+    /**
+     * Puts the bubble back on a visible edge after the screen changed (rotation, folding, display size). The
+     * remembered edge and relative height are restored on the new geometry.
+     */
+    fun reclamp() {
+        if (!attached) return
+        cancelSnap()
+        val (x, y) = restorePosition(ScreenMetrics.real(context))
+        params.x = x
+        params.y = y
         update()
     }
 
     private fun snapToEdge() {
         val screen = ScreenMetrics.real(context)
-        val rightEdge = (screen.width - sizePx - marginPx).coerceAtLeast(marginPx)
         val toRight = params.x + sizePx / 2 > screen.width / 2
-        val target = if (toRight) rightEdge else marginPx
+        val target = BubbleGeometry.edgeX(toRight, sizePx, marginPx, screen.width)
         cancelSnap()
         snap = ValueAnimator.ofInt(params.x, target).apply {
             duration = SNAP_MILLIS
@@ -137,16 +174,13 @@ class CaptureBubble(
     private fun restorePosition(screen: ScreenSize): Pair<Int, Int> {
         val right = prefs.getBoolean(KEY_RIGHT, true)
         val fraction = prefs.getFloat(KEY_Y, DEFAULT_Y_FRACTION).coerceIn(0f, 1f)
-        val x = if (right) (screen.width - sizePx - marginPx).coerceAtLeast(0) else marginPx
-        val y = (fraction * (screen.height - sizePx)).toInt().coerceAtLeast(0)
-        return x to y
+        return BubbleGeometry.restore(right, fraction, sizePx, marginPx, screen.width, screen.height)
     }
 
     private fun persistPosition(screen: ScreenSize, right: Boolean) {
-        val room = (screen.height - sizePx).coerceAtLeast(1)
         prefs.edit()
             .putBoolean(KEY_RIGHT, right)
-            .putFloat(KEY_Y, (params.y.toFloat() / room).coerceIn(0f, 1f))
+            .putFloat(KEY_Y, BubbleGeometry.yFraction(params.y, sizePx, screen.height))
             .apply()
     }
 
@@ -220,8 +254,8 @@ internal class BubbleView(
         val half = radius * 0.5f
         val arm = radius * 0.3f
         brackets.reset()
-        for (sx in intArrayOf(-1, 1)) {
-            for (sy in intArrayOf(-1, 1)) {
+        for (sx in SIGNS) {
+            for (sy in SIGNS) {
                 val cornerX = cx + sx * half
                 val cornerY = cy + sy * half
                 brackets.moveTo(cornerX - sx * arm, cornerY)
@@ -277,6 +311,9 @@ internal class BubbleView(
 
     private companion object {
         const val REST_ALPHA = 0.94f
+
+        /** The two directions of each viewfinder corner, kept out of onDraw so drawing allocates nothing. */
+        val SIGNS = intArrayOf(-1, 1)
 
         /** Persimmon, the brand accent (packages/brand palette.light.accent). */
         const val ACCENT = 0xFFC8471D.toInt()

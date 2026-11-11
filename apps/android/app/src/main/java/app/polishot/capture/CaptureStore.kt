@@ -10,11 +10,46 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.sqrt
 
 /** A capture that was written to private storage. */
 data class SavedCapture(val id: String, val width: Int, val height: Int)
+
+/** An image that cannot be decoded safely: it is far larger than any screenshot (a decompression bomb) or damaged. */
+class ImageRejectedException(message: String) : IOException(message)
+
+/** The platform decoder could not read the bytes as an image (damaged, truncated or not an image at all). */
+class ImageUnreadableException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/**
+ * Size rules for images that arrive from outside the app (picker, share sheet, quick send). Pure arithmetic, no
+ * Android types, so it is covered by plain JVM tests.
+ *
+ * Three tiers: up to [MAX_IMPORT_PIXELS] an image is used as is; beyond that it is scaled down while decoding; beyond
+ * [HARD_MAX_PIXELS] (or [HARD_MAX_SIDE] on one edge) it is refused before any pixel is decoded, because a small file
+ * can describe an enormous image and the allocation would kill the process rather than throw.
+ */
+object ImageLimits {
+    /** 24 megapixels: about 96 MB as ARGB_8888, the most a phone can comfortably hold. */
+    const val MAX_IMPORT_PIXELS = 24_000_000L
+
+    /** 120 megapixels: far beyond any camera or screen; anything larger is treated as hostile. */
+    const val HARD_MAX_PIXELS = 120_000_000L
+    const val HARD_MAX_SIDE = 32_768
+
+    fun isAcceptable(width: Int, height: Int): Boolean =
+        width in 1..HARD_MAX_SIDE && height in 1..HARD_MAX_SIDE && width.toLong() * height <= HARD_MAX_PIXELS
+
+    /** The size to decode at, or null when the image is small enough to keep. Never returns a zero side. */
+    fun targetSize(width: Int, height: Int): Pair<Int, Int>? {
+        val pixels = width.toLong() * height.toLong()
+        if (pixels <= MAX_IMPORT_PIXELS) return null
+        val factor = sqrt(MAX_IMPORT_PIXELS.toDouble() / pixels.toDouble())
+        return max(1, (width * factor).toInt()) to max(1, (height * factor).toInt())
+    }
+}
 
 /**
  * App-private image storage under `filesDir`:
@@ -55,9 +90,12 @@ class CaptureStore(root: File) {
         return if (options.outWidth > 0 && options.outHeight > 0) options.outWidth to options.outHeight else null
     }
 
-    /** Encodes [bitmap] losslessly as a new capture and writes its thumbnail. */
+    /**
+     * Encodes [bitmap] losslessly as a new capture, without the thumbnail. The editor can open the capture as soon as
+     * this returns; write the thumbnail afterwards with [writeThumbnail].
+     */
     @Throws(IOException::class)
-    fun save(bitmap: Bitmap): SavedCapture {
+    fun savePng(bitmap: Bitmap): SavedCapture {
         val id = CaptureIds.generate()
         val target = imageFile(id)
         val temp = File(capturesDir, "$id.png.tmp")
@@ -69,30 +107,45 @@ class CaptureStore(root: File) {
         } finally {
             if (temp.exists()) temp.delete()
         }
-        writeThumbnail(id, bitmap)
         return SavedCapture(id, bitmap.width, bitmap.height)
+    }
+
+    /** [savePng] plus the thumbnail. */
+    @Throws(IOException::class)
+    fun save(bitmap: Bitmap): SavedCapture {
+        val saved = savePng(bitmap)
+        writeThumbnail(saved.id, bitmap)
+        return saved
     }
 
     /**
      * Imports an image the user picked or shared. Decoding goes through [ImageDecoder] (which also applies EXIF
-     * rotation), always into software memory, and images beyond [MAX_IMPORT_PIXELS] are downscaled. Anything the
-     * platform cannot decode raises [IOException].
+     * rotation), always into software memory, and images beyond [ImageLimits.MAX_IMPORT_PIXELS] are downscaled.
+     * Anything the platform cannot decode raises [IOException]; an absurdly large image raises
+     * [ImageRejectedException] before it is decoded.
      */
     @Throws(IOException::class)
-    fun importFrom(resolver: ContentResolver, uri: Uri): SavedCapture {
+    fun importFrom(resolver: ContentResolver, uri: Uri): SavedCapture =
+        saveDecoded { ImageDecoder.createSource(resolver, uri) }
+
+    /**
+     * Same as [importFrom] for bytes that are already in memory (an image received by quick send). The bytes are
+     * untrusted: the platform decoder, with the size limits above, is the gatekeeper.
+     */
+    @Throws(IOException::class)
+    fun importBytes(bytes: ByteArray): SavedCapture = saveDecoded { ImageDecoder.createSource(ByteBuffer.wrap(bytes)) }
+
+    private fun saveDecoded(source: () -> ImageDecoder.Source): SavedCapture {
         val bitmap = try {
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            ImageDecoder.decodeBitmap(source()) { decoder, info, _ ->
                 val w = info.size.width
                 val h = info.size.height
-                val pixels = w.toLong() * h.toLong()
-                if (pixels > MAX_IMPORT_PIXELS) {
-                    val factor = sqrt(MAX_IMPORT_PIXELS.toDouble() / pixels.toDouble())
-                    decoder.setTargetSize(max(1, (w * factor).toInt()), max(1, (h * factor).toInt()))
-                }
+                if (!ImageLimits.isAcceptable(w, h)) throw ImageRejectedException("Image is too large ($w x $h)")
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                ImageLimits.targetSize(w, h)?.let { (tw, th) -> decoder.setTargetSize(tw, th) }
             }
         } catch (e: ImageDecoder.DecodeException) {
-            throw IOException("Unsupported image", e)
+            throw ImageUnreadableException("Unsupported image", e)
         } catch (e: SecurityException) {
             throw IOException("Image is not readable", e)
         }
@@ -130,7 +183,8 @@ class CaptureStore(root: File) {
         }
     }
 
-    private fun writeThumbnail(id: String, source: Bitmap) {
+    /** Writes the history-grid thumbnail for [id]; a failure leaves the grid with a plain tile. */
+    fun writeThumbnail(id: String, source: Bitmap) {
         val longest = max(source.width, source.height)
         val factor = if (longest > THUMB_SIDE) THUMB_SIDE.toFloat() / longest else 1f
         val tw = max(1, (source.width * factor).toInt())
@@ -148,8 +202,7 @@ class CaptureStore(root: File) {
     }
 
     companion object {
-        /** 24 megapixels: about 96 MB as ARGB_8888, the most a phone can comfortably hold. */
-        const val MAX_IMPORT_PIXELS = 24_000_000L
+        const val MAX_IMPORT_PIXELS = ImageLimits.MAX_IMPORT_PIXELS
         private const val THUMB_SIDE = 480
     }
 }

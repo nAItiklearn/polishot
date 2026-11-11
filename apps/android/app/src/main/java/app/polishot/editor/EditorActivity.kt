@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -29,13 +30,13 @@ import app.polishot.capture.CaptureIds
 import app.polishot.capture.CaptureSession
 import app.polishot.history.LookExtractor
 import app.polishot.ocr.OcrEngine
-import app.polishot.ocr.OcrMapping
 import app.polishot.ocr.OcrWord
 import app.polishot.polishotApp
 import app.polishot.quicksend.QuickSendOutbox
 import app.polishot.quicksend.SendToDeviceActivity
 import app.polishot.settings.AppSettings
 import app.polishot.settings.BrandMarkPayload
+import app.polishot.ui.theme.WindowColors
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -46,12 +47,16 @@ import kotlinx.coroutines.withContext
 /**
  * Hosts the shared editor (apps/android/editor-host, built from packages/editor) in a locked-down WebView.
  *
- * Flow: the page loads from the asset origin and calls `PolishotAndroid.ready()`; native then sends the image URL,
- * the cached OCR words and the saved document with `window.polishot.load`, runs OCR if it has not run yet and
- * pushes the words with `setWords`. Exports come back through the bridge as validated base64 and are saved with
- * MediaStore, shared through FileProvider or copied to the clipboard.
+ * Flow: the page loads from the asset origin and calls `ready`; native then sends the image URL, the cached OCR words
+ * and the saved document with `window.polishot.load`, runs OCR if it has not run yet and pushes the words with
+ * `setWords`. Exports come back through the bridge as validated image bytes and are saved with MediaStore, shared
+ * through FileProvider or copied to the clipboard.
  *
  * With [EXTRA_BATCH_IDS] the same page runs the batch beautify loop instead and reports progress.
+ *
+ * Nothing in here does disk, database or JSON work on the main thread: the request is assembled on background
+ * dispatchers and only the final script is evaluated on the main thread. If the saved document or the cached words
+ * cannot be read, the screenshot still opens (fresh, and OCR runs again).
  */
 class EditorActivity : ComponentActivity(), EditorBridge.Host {
     private lateinit var webView: WebView
@@ -59,10 +64,14 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
     private lateinit var exporter: ExportActions
 
     private var pageReady = false
+
+    /** True when the page may send images as binary web messages instead of base64 text. */
+    private var bridgeBinary = false
     private var currentId: String? = null
     private var batchIds: List<String> = emptyList()
     private var currentWords: List<OcrWord>? = null
     private var ocrJob: Job? = null
+    private var deliverJob: Job? = null
     private var pendingChooser: ValueCallback<Array<Uri>>? = null
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -93,11 +102,12 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
         val dark = isDark(app.settings.settings.value)
         val bar = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
         enableEdgeToEdge(statusBarStyle = bar, navigationBarStyle = bar)
+        val background = WindowColors.background(dark)
+        window.setBackgroundDrawable(ColorDrawable(background))
 
         exporter = ExportActions(this)
         bridge = EditorBridge(this)
 
-        val background = if (dark) BACKGROUND_DARK else BACKGROUND_LIGHT
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val loader = EditorWebViewFactory.assetLoader(this, app.captures)
 
@@ -123,7 +133,8 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
                 return true
             }
         }
-        webView.addJavascriptInterface(bridge, BRIDGE_NAME)
+        val usesMessages = EditorWebViewFactory.installBridge(webView, bridge)
+        bridgeBinary = usesMessages && EditorWebViewFactory.supportsBinary()
 
         val root = FrameLayout(this)
         root.setBackgroundColor(background)
@@ -148,7 +159,7 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 // `licensed` in the page means Pro: no watermark, brand mark, no free-tier limits (CONTRACTS 5b).
                 app.license.entitlement.collect { entitlement ->
-                    if (pageReady) evaluate(JsCalls.setLicensed(entitlement.pro))
+                    if (pageReady && app.license.isRestored) evaluate(JsCalls.setLicensed(entitlement.pro))
                 }
             }
         }
@@ -163,6 +174,20 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
     override fun onStart() {
         super.onStart()
         CaptureSession.setEditorVisible(true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::webView.isInitialized) webView.onResume()
+    }
+
+    override fun onPause() {
+        if (::webView.isInitialized) {
+            // Let the page write a pending document edit before it is paused, then stop its extra processing.
+            if (pageReady) evaluate(JsCalls.flush())
+            webView.onPause()
+        }
+        super.onPause()
     }
 
     override fun onStop() {
@@ -213,48 +238,88 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
 
     private fun deliverRequest() {
         val app = polishotApp
-        val settings = app.settings.settings.value
-        val dark = isDark(settings)
-        val licensed = app.license.isPro
-        lifecycleScope.launch {
-            if (batchIds.isNotEmpty()) {
-                val items = withContext(Dispatchers.IO) {
-                    batchIds.mapNotNull { id ->
-                        app.captures.readSize(id)?.let { (w, h) -> BatchItem(id, EditorUrls.captureUrl(id), w, h) }
-                    }
-                }
-                if (items.isEmpty()) {
-                    Toast.makeText(this@EditorActivity, R.string.editor_open_failed, Toast.LENGTH_LONG).show()
-                    finish()
-                    return@launch
-                }
-                val mark = withContext(Dispatchers.IO) { brandMarkFor(settings, licensed) }
-                evaluate(
-                    JsCalls.batch(items, app.settings.lastLookJson, licensed, themeName(dark), exportDefaults(settings), mark),
-                )
-                return@launch
+        deliverJob?.cancel()
+        deliverJob = lifecycleScope.launch {
+            try {
+                val settings = app.settings.settings.value
+                val dark = isDark(settings)
+                // The stored key is checked off the main thread at start-up. Wait for the answer so the page never
+                // gets a wrong "licensed" flag, which would put a watermark on a Pro export.
+                val licensed = app.license.awaitPro()
+                if (batchIds.isNotEmpty()) deliverBatch(settings, dark, licensed) else deliverSingle(settings, dark, licensed)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failToOpen(e.javaClass.simpleName)
+            } catch (e: OutOfMemoryError) {
+                failToOpen("OutOfMemoryError")
             }
-
-            val id = currentId ?: return@launch
-            val payload = withContext(Dispatchers.IO) { buildLoadPayload(id, settings, dark, licensed) }
-            if (payload == null) {
-                Toast.makeText(this@EditorActivity, R.string.editor_open_failed, Toast.LENGTH_LONG).show()
-                finish()
-                return@launch
-            }
-            currentWords = payload.words
-            evaluate(JsCalls.load(payload))
-            if (payload.words == null) startOcr(id)
         }
     }
 
+    private suspend fun deliverBatch(settings: AppSettings, dark: Boolean, licensed: Boolean) {
+        val app = polishotApp
+        val ids = batchIds
+        val script = withContext(Dispatchers.IO) {
+            val items = ids.mapNotNull { id ->
+                app.captures.readSize(id)?.let { (w, h) -> BatchItem(id, EditorUrls.captureUrl(id), w, h) }
+            }
+            if (items.isEmpty()) {
+                null
+            } else {
+                JsCalls.batch(
+                    items,
+                    app.settings.lastLookJson,
+                    licensed,
+                    themeName(dark),
+                    exportDefaults(settings),
+                    brandMarkFor(settings, licensed),
+                    bridgeBinary,
+                )
+            }
+        }
+        if (script == null) {
+            failToOpen("no readable images")
+            return
+        }
+        evaluate(script)
+    }
+
+    private suspend fun deliverSingle(settings: AppSettings, dark: Boolean, licensed: Boolean) {
+        val id = currentId ?: return
+        val payload = withContext(Dispatchers.IO) { buildLoadPayload(id, settings, dark, licensed) }
+        if (payload == null) {
+            failToOpen("unreadable capture")
+            return
+        }
+        // JSON for the page can be a megabyte of words and a document: build it away from the main thread.
+        val script = withContext(Dispatchers.Default) { JsCalls.load(payload) }
+        currentWords = payload.words
+        evaluate(script)
+        if (payload.words == null) startOcr(id)
+    }
+
+    private fun failToOpen(reason: String) {
+        Log.w(TAG, "could not open the capture: $reason")
+        Toast.makeText(this, R.string.editor_open_failed, Toast.LENGTH_LONG).show()
+        finish()
+    }
+
+    /**
+     * Gathers everything the page needs, tolerating a damaged history row: an unreadable document or word list is
+     * dropped (the repository clears it) and the screenshot opens fresh.
+     */
     private suspend fun buildLoadPayload(id: String, settings: AppSettings, dark: Boolean, licensed: Boolean): LoadPayload? {
         val app = polishotApp
         val (width, height) = app.captures.readSize(id) ?: return null
-        var entity = app.history.get(id)
-        if (entity == null) {
-            app.history.register(id, width, height)
-            entity = app.history.get(id)
+        if (app.history.meta(id) == null) {
+            try {
+                app.history.register(id, width, height)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The screenshot is on disk; the history row can be added later.
+            }
         }
         return LoadPayload(
             id = id,
@@ -263,12 +328,13 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
             height = height,
             licensed = licensed,
             theme = themeName(dark),
-            words = entity?.wordsJson?.let { OcrMapping.fromJson(it) },
-            docJson = entity?.docJson,
+            words = app.history.words(id),
+            docJson = app.history.docJson(id),
             exportDefaults = exportDefaults(settings),
             defaultPreset = settings.defaultPreset,
             quickSendAvailable = true,
             brandMark = brandMarkFor(settings, licensed),
+            binaryImages = bridgeBinary,
         )
     }
 
@@ -280,24 +346,36 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
         ocrJob?.cancel()
         val app = polishotApp
         ocrJob = lifecycleScope.launch {
-            val words: List<OcrWord> = try {
+            // null = recognition failed; an empty list = it ran and found no text.
+            val words: List<OcrWord>? = try {
                 val size = withContext(Dispatchers.IO) { app.captures.readSize(id) }
-                if (size == null) {
-                    emptyList()
-                } else {
-                    OcrEngine.recognize(app.captures.imageFile(id), size.first, size.second)
-                }
+                if (size == null) null else OcrEngine.recognize(app.captures.imageFile(id), size.first, size.second)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "OCR failed: ${e.javaClass.simpleName}") // never log recognised text
-                emptyList()
+                null
+            } catch (e: OutOfMemoryError) {
+                Log.w(TAG, "OCR ran out of memory")
+                null
             }
             if (currentId == id) {
-                currentWords = words
-                evaluate(JsCalls.setWords(words))
+                // The page stops waiting either way; on failure it simply finds no text.
+                val shown = words ?: emptyList()
+                currentWords = shown
+                val script = withContext(Dispatchers.Default) { JsCalls.setWords(shown) }
+                evaluate(script)
             }
-            app.appScope.launch(Dispatchers.IO) { app.history.saveOcr(id, words) }
+            // Only a successful run is remembered: a failure is retried the next time the screenshot opens.
+            if (words != null) {
+                app.appScope.launch(Dispatchers.IO) {
+                    try {
+                        app.history.saveOcr(id, words)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "could not store OCR words: ${e.javaClass.simpleName}")
+                    }
+                }
+            }
         }
     }
 
@@ -331,7 +409,10 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
             if (id != currentId) return@runOnUiThread
             val cached = currentWords
             when {
-                cached != null -> evaluate(JsCalls.setWords(cached))
+                cached != null -> lifecycleScope.launch {
+                    val script = withContext(Dispatchers.Default) { JsCalls.setWords(cached) }
+                    evaluate(script)
+                }
                 ocrJob?.isActive != true -> startOcr(id)
             }
         }
@@ -351,7 +432,13 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
     override fun onShareImage(image: DecodedImage) {
         try {
             val chooser = exporter.shareIntent(image)
-            runOnUiThread { startActivity(chooser) }
+            runOnUiThread {
+                try {
+                    startActivity(chooser)
+                } catch (e: RuntimeException) {
+                    notifyPage(NotifyKind.Error, getString(R.string.editor_share_failed))
+                }
+            }
             notifyPage(NotifyKind.Shared, "")
         } catch (e: IOException) {
             notifyPage(NotifyKind.Error, getString(R.string.editor_share_failed))
@@ -379,15 +466,28 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
     override fun onSaveDoc(id: String, docJson: String) {
         val app = polishotApp
         app.appScope.launch(Dispatchers.IO) {
-            app.history.saveDoc(id, docJson)
-            LookExtractor.fromDocJson(docJson)?.let { app.settings.lastLookJson = it }
+            try {
+                app.history.saveDoc(id, docJson)
+                LookExtractor.fromDocJson(docJson)?.let { app.settings.lastLookJson = it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "could not store the document: ${e.javaClass.simpleName}")
+            }
         }
     }
 
     override fun onQuickSend(image: DecodedImage) {
         // The "Send to" sheet takes the PNG from the outbox, lists paired devices and sends it.
         QuickSendOutbox.put(image.bytes)
-        runOnUiThread { startActivity(SendToDeviceActivity.intent(this)) }
+        runOnUiThread {
+            try {
+                startActivity(SendToDeviceActivity.intent(this))
+            } catch (e: RuntimeException) {
+                QuickSendOutbox.clear()
+                notifyPage(NotifyKind.Error, getString(R.string.editor_send_failed))
+            }
+        }
         notifyPage(NotifyKind.Shared, "") // lets the page leave its busy state
     }
 
@@ -408,15 +508,25 @@ class EditorActivity : ComponentActivity(), EditorBridge.Host {
         }
     }
 
+    /**
+     * A call the user is waiting on was refused or failed. Tell the page right away so its busy state ends and it
+     * shows a message, instead of spinning until its own timeout.
+     */
+    override fun onRejected(method: String) {
+        val message = when (method) {
+            "saveImage" -> R.string.editor_save_failed
+            "shareImage" -> R.string.editor_share_failed
+            "copyImage", "copyText" -> R.string.editor_copy_failed
+            "quickSend" -> R.string.editor_send_failed
+            else -> R.string.editor_generic_failed
+        }
+        notifyPage(NotifyKind.Error, getString(message))
+    }
+
     companion object {
         private const val TAG = "PolishotEditor"
-        private const val BRIDGE_NAME = "PolishotAndroid"
         private const val EXTRA_CAPTURE_ID = "app.polishot.extra.CAPTURE_ID"
         private const val EXTRA_BATCH_IDS = "app.polishot.extra.BATCH_IDS"
-
-        /** Window colours from the brand palette (packages/brand), so no white flash while the page loads. */
-        private const val BACKGROUND_LIGHT = 0xFFFAFAF9.toInt()
-        private const val BACKGROUND_DARK = 0xFF0C0C0B.toInt()
 
         /** Opens one stored capture (already registered in the history). */
         fun intentFor(context: Context, captureId: String): Intent =

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -58,6 +60,9 @@ import app.polishot.APP_NAME
 import app.polishot.R
 import app.polishot.history.HistoryRow
 import app.polishot.ui.components.BrandMark
+import kotlinx.coroutines.delay
+
+private const val CLOCK_TICK_MILLIS = 60_000L
 
 /** Loads a history thumbnail off the main thread; returns null when there is none. */
 fun interface ThumbnailLoader {
@@ -70,7 +75,10 @@ data class HomeState(
     val query: String,
     /** True while a capture session (foreground service) is running. */
     val sessionActive: Boolean,
-    val nowMillis: Long = System.currentTimeMillis(),
+    /** True until the history database has answered once; nothing is drawn in the history area meanwhile. */
+    val loading: Boolean = false,
+    /** Fixed "now" for relative times (tests). Null means the screen keeps its own clock, ticking once a minute. */
+    val nowMillis: Long? = null,
 )
 
 /**
@@ -97,8 +105,20 @@ fun HomeScreen(
     var confirmClear by rememberSaveable { mutableStateOf(false) }
     val span: LazyGridItemSpanScope.() -> GridItemSpan = { GridItemSpan(maxLineSpan) }
     val hasHistory = state.items.isNotEmpty() || state.query.isNotBlank()
+    // One clock for every tile, refreshed once a minute, instead of a new "now" on every recomposition.
+    val ticking by produceState(System.currentTimeMillis()) {
+        while (true) {
+            delay(CLOCK_TICK_MILLIS)
+            value = System.currentTimeMillis()
+        }
+    }
+    val now = state.nowMillis ?: ticking
 
-    Scaffold(modifier = modifier, containerColor = MaterialTheme.colorScheme.background) { inner ->
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+    ) { inner ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 148.dp),
             modifier = Modifier.fillMaxSize().padding(inner).testTag("home-grid"),
@@ -125,7 +145,9 @@ fun HomeScreen(
                     onClearAll = { confirmClear = true },
                 )
             }
-            if (!hasHistory) {
+            if (state.loading) {
+                // Draw nothing yet: showing the empty state for a moment would flash on every cold start.
+            } else if (!hasHistory) {
                 item(span = span) { EmptyState() }
             } else if (state.items.isEmpty()) {
                 item(span = span) {
@@ -140,7 +162,7 @@ fun HomeScreen(
                 items(state.items, key = { it.id }) { row ->
                     HistoryTile(
                         row = row,
-                        nowMillis = state.nowMillis,
+                        nowMillis = now,
                         thumbnails = thumbnails,
                         onOpen = { onOpenItem(row.id) },
                         onDelete = { pendingDelete = row.id },

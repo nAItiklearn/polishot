@@ -190,3 +190,15 @@ fun PolishotTheme(
         content = content,
     )
 }
+
+/**
+ * Window background colours from the brand palette (packages/brand `palette.light.bg` / `palette.dark.bg`), used to
+ * paint the window before the first frame of Compose or the WebView, so there is no flash of the wrong colour when
+ * the user's theme differs from the system's.
+ */
+object WindowColors {
+    const val LIGHT: Int = 0xFFFAFAF9.toInt()
+    const val DARK: Int = 0xFF0C0C0B.toInt()
+
+    fun background(dark: Boolean): Int = if (dark) DARK else LIGHT
+}

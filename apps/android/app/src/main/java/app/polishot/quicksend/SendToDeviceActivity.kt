@@ -59,14 +59,19 @@ class SendToDeviceActivity : ComponentActivity() {
 
     private val localNetworkPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) polishotApp.quickSend.acquire() else message = R.string.quicksend_permission
-            started = granted
+            if (!granted) {
+                message = R.string.quicksend_permission
+            } else if (!started && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                // Count the screen in once; if the user already left (onStop ran), there is nothing to start.
+                polishotApp.quickSend.acquire()
+                started = true
+            }
         }
     private var started = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        png = QuickSendOutbox.take()
+        png = QuickSendOutbox.peek()
         if (png == null) {
             finish()
             return
@@ -76,7 +81,9 @@ class SendToDeviceActivity : ComponentActivity() {
 
         setContent {
             val state by controller.state.collectAsStateWithLifecycle()
-            PolishotTheme(darkTheme = settings.settings.value.theme.isDark(isSystemInDarkTheme())) {
+            // Collected, not read with .value: a theme change must recompose the sheet.
+            val appSettings by settings.settings.collectAsStateWithLifecycle()
+            PolishotTheme(darkTheme = appSettings.theme.isDark(isSystemInDarkTheme())) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -131,7 +138,7 @@ class SendToDeviceActivity : ComponentActivity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             localNetworkPermission.launch(QuickSendController.LOCAL_NETWORK_PERMISSION)
-        } else {
+        } else if (!started) {
             polishotApp.quickSend.acquire()
             started = true
         }
@@ -146,7 +153,10 @@ class SendToDeviceActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (isFinishing) png = null // the bytes are large; do not hold them past the sheet
+        if (isFinishing) {
+            png = null
+            QuickSendOutbox.clear() // the bytes are large; do not hold them past the sheet
+        }
         super.onDestroy()
     }
 

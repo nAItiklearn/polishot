@@ -41,9 +41,16 @@ val hasReleaseSigning: Boolean = !releaseKeystorePath.isNullOrBlank()
 // Days since the Unix epoch at build time; a key covers every build dated up to issuedDays + 365.
 // `-PbuildDays=<n>` pins the value (reproducible builds, tests).
 val buildDays: Long = providers.gradleProperty("buildDays")
-    .map { it.trim().toLong() }
+    .map { it.trim().toLongOrNull() ?: throw GradleException("-PbuildDays must be a whole number of days since 1970-01-01, got '$it'") }
     .orElse(System.currentTimeMillis() / 86_400_000L)
     .get()
+
+// A build dated outside 2026-01-01..2100-01-01 is a wrong clock or a typo, never a real build, and the worst kind of
+// mistake: day 0 would sit inside every key's update window and make every key cover this build. Same bounds as the
+// desktop app (MIN_BUILD_DAYS / MAX_BUILD_DAYS in apps/desktop/src-tauri/core/src/license.rs).
+check(buildDays in 20_454L..47_482L) {
+    "buildDays is $buildDays, outside 2026-01-01..2100-01-01 (20454..47482). Check the clock or the -PbuildDays value."
+}
 
 android {
     namespace = "app.polishot"

@@ -33,6 +33,8 @@
     <string name="capture_channel_ready">Screenshots</string>
     <string name="capture_failed">Couldn\'t capture the screen. Try again.</string>
     <string name="capture_bubble_unavailable">The floating button couldn\'t be shown. Use Capture in the notification.</string>
+    <string name="capture_started_no_bubble">Capturing is on. Pull down the notification and tap Capture to take a screenshot.</string>
+    <string name="capture_needs_trigger">The floating button and notifications are both off, so there would be nothing to tap. Turn notifications on, then try again.</string>
     <string name="capture_notification_title">Polishot is ready</string>
     <string name="capture_notification_text">Tap the floating button to capture the screen.</string>
     <string name="capture_notification_text_no_bubble">Tap Capture to grab the screen.</string>
@@ -117,7 +119,8 @@
     <string name="editor_copied_image">Image copied</string>
     <string name="editor_copied_text">Text copied</string>
     <string name="editor_copy_failed">Couldn\'t copy.</string>
-    <string name="editor_sent">Sent</string>
+    <string name="editor_send_failed">Couldn\'t send the image.</string>
+    <string name="editor_generic_failed">Something went wrong. Try again.</string>
     <plurals name="batch_done">
         <item quantity="one">Saved %d image to Pictures/Polishot.</item>
         <item quantity="other">Saved %d images to Pictures/Polishot.</item>
@@ -132,6 +135,7 @@
     <string name="quicksend_starting">Getting ready\u2026</string>
     <string name="quicksend_permission">Allow access to devices on your network so Polishot can find your PC.</string>
     <string name="quicksend_permission_action">Allow</string>
+    <string name="quicksend_permission_settings">Open settings</string>
     <string name="quicksend_device_name">This device</string>
     <string name="quicksend_rename">Save</string>
     <string name="quicksend_paired">Paired devices</string>
@@ -179,6 +183,7 @@
     <!-- Share sheet -->
     <string name="share_label">Beautify with Polishot</string>
     <string name="share_preparing">Preparing</string>
+    <string name="share_progress">Preparing %1$d of %2$d</string>
     <string name="share_nothing">No image was shared.</string>
     <string name="share_unreadable">Those images couldn\'t be opened.</string>
     <string name="share_free_limit">Free processes up to %1$d images at a time, so only the first %1$d of %2$d are used. Pro removes the limit.</string>

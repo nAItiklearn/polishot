@@ -1,6 +1,7 @@
 package app.polishot.share
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -13,17 +14,21 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import app.polishot.R
+import app.polishot.capture.CaptureStore
 import app.polishot.capture.SavedCapture
 import app.polishot.editor.EditorActivity
 import app.polishot.polishotApp
 import app.polishot.ui.theme.PolishotTheme
-import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,8 +43,18 @@ import kotlinx.coroutines.withContext
  * temporary read permission is not needed afterwards.
  */
 class ShareReceiverActivity : ComponentActivity() {
+    /** How many of the shared images are imported so far, and how many there are: "2 of 5". */
+    private var done by mutableIntStateOf(0)
+    private var total by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A recreated activity (process death) must not import the same images twice, and has nothing to show:
+        // the share sheet's original intent is gone with the process.
+        if (savedInstanceState != null) {
+            finish()
+            return
+        }
         setContent {
             PolishotTheme(darkTheme = isSystemInDarkTheme()) {
                 Surface(color = androidx.compose.ui.graphics.Color.Transparent) {
@@ -49,14 +64,32 @@ class ShareReceiverActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         CircularProgressIndicator()
-                        Text(stringResource(R.string.share_preparing), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = if (total > 1) {
+                                stringResource(R.string.share_progress, minOf(done + 1, total), total)
+                            } else {
+                                stringResource(R.string.share_preparing)
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
             }
         }
-        // A recreated activity (process death) must not import the same images twice.
-        if (savedInstanceState == null) handle(intent)
+        handle(intent)
     }
+
+    /** One image into private storage; any failure (unreadable, too large, out of memory) just skips that image. */
+    private fun importOne(captures: CaptureStore, uri: Uri): SavedCapture? =
+        try {
+            captures.importFrom(contentResolver, uri)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
+        }
 
     private fun handle(intent: Intent) {
         val app = polishotApp
@@ -66,18 +99,17 @@ class ShareReceiverActivity : ComponentActivity() {
             finish()
             return
         }
-        val plan = BatchPolicy.plan(all.size, app.license.isPro)
-        val picked = all.take(plan.accepted)
-
         lifecycleScope.launch {
-            val saved: List<SavedCapture> = withContext(Dispatchers.IO) {
-                picked.mapNotNull { uri ->
-                    try {
-                        app.captures.importFrom(contentResolver, uri)
-                    } catch (e: IOException) {
-                        null
-                    }
-                }
+            // The stored licence is checked off the main thread at start-up; the batch limit depends on it.
+            val plan = BatchPolicy.plan(all.size, app.license.awaitPro())
+            val picked = all.take(plan.accepted)
+            total = picked.size
+
+            val saved = ArrayList<SavedCapture>(picked.size)
+            for ((index, uri) in picked.withIndex()) {
+                val one = withContext(Dispatchers.IO) { importOne(app.captures, uri) }
+                if (one != null) saved.add(one)
+                done = index + 1
             }
             if (saved.isEmpty()) {
                 Toast.makeText(this@ShareReceiverActivity, R.string.share_unreadable, Toast.LENGTH_LONG).show()

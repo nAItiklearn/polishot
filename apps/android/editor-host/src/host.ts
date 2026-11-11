@@ -1,5 +1,5 @@
 import type { OcrWord } from '@polishot/redact';
-import type { HostHandlers, PolishotApi } from './native';
+import { setBinaryImages, type HostHandlers, type PolishotApi } from './native';
 import {
   parseBatch,
   parseLoad,
@@ -47,6 +47,7 @@ export function installPolishotApi(): void {
     load(raw) {
       const payload = parseLoad(raw, origin());
       if (!payload) return;
+      setBinaryImages(payload.binaryImages);
       if (handlers) handlers.load(payload);
       else pending.load = payload;
     },
@@ -70,9 +71,13 @@ export function installPolishotApi(): void {
     onBack() {
       return handlers ? handlers.onBack() : false;
     },
+    flush() {
+      handlers?.flush();
+    },
     batch(raw) {
       const payload = parseBatch(raw, origin());
       if (!payload) return;
+      setBinaryImages(payload.binaryImages);
       if (handlers) handlers.batch(payload);
       else pending.batch = payload;
     },

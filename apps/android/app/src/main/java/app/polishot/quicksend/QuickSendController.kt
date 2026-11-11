@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.text.format.Formatter
 import androidx.core.app.NotificationChannelCompat
@@ -14,6 +13,8 @@ import app.polishot.APP_SLUG
 import app.polishot.MainActivity
 import app.polishot.R
 import app.polishot.capture.CaptureStore
+import app.polishot.capture.ImageRejectedException
+import app.polishot.capture.ImageUnreadableException
 import app.polishot.editor.EditorActivity
 import app.polishot.history.HistoryRepository
 import java.io.IOException
@@ -21,8 +22,11 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -62,14 +66,54 @@ sealed interface QuickSendEvent {
 }
 
 /**
+ * A question waiting for the user, with the future that answers it. A prompt only ever clears itself: the identity
+ * check in [PromptSlot.finish] means a prompt that timed out can never wipe the screen of the one that replaced it.
+ */
+internal class PromptSlot {
+    private val lock = Any()
+    private var current: CompletableFuture<Boolean>? = null
+
+    /** Claims the slot. Returns null when another prompt is already waiting (the caller must refuse its request). */
+    fun begin(): CompletableFuture<Boolean>? = synchronized(lock) {
+        if (current != null) {
+            null
+        } else {
+            CompletableFuture<Boolean>().also { current = it }
+        }
+    }
+
+    /** Answers the waiting prompt, if any. */
+    fun answer(value: Boolean) {
+        val waiting = synchronized(lock) { current }
+        waiting?.complete(value)
+    }
+
+    /** Releases the slot if [mine] still owns it. Returns true when it did. */
+    fun finish(mine: CompletableFuture<Boolean>): Boolean = synchronized(lock) {
+        if (current === mine) {
+            current = null
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/**
  * Glue between the quick-send engine and the app: lifecycle (listen and advertise only while a quick-send screen is
- * visible), mDNS discovery, user prompts as state, and what happens to a received image (decoded by the platform,
- * stored privately, added to the history). One instance per process, owned by [app.polishot.PolishotApp].
+ * visible), mDNS discovery, user prompts as state, and what happens to a received image (decoded by the platform
+ * with size limits, stored privately, added to the history). One instance per process, owned by
+ * [app.polishot.PolishotApp].
  *
  * Why a visible-screen listener and no foreground service: the protocol only wants the device reachable while the
  * receive or pairing screen is open (docs/QUICKSEND.md section 4), and a visible screen keeps the process in the
  * foreground by itself.
+ *
+ * Threading: nothing here blocks the main thread. Starting and stopping the listener, the Keystore reads and the key
+ * generation behind them, and mDNS registration all run on one serialized background dispatcher; the screens only
+ * count themselves in and out ([acquire], [release]) and the dispatcher reconciles the real state with the count.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class QuickSendController(
     context: Context,
     private val store: QuickSendStore,
@@ -90,9 +134,15 @@ class QuickSendController(
     val events: SharedFlow<QuickSendEvent> = mutableEvents.asSharedFlow()
 
     private val peers = LinkedHashMap<DeviceId, DiscoveredPeer>()
-    @Volatile private var offerAnswer: CompletableFuture<Boolean>? = null
-    @Volatile private var pairingAnswer: CompletableFuture<Boolean>? = null
+    private val offerSlot = PromptSlot()
+    private val pairingSlot = PromptSlot()
+    private val sendGate = AtomicBoolean(false)
+
+    /** Runs lifecycle work one task at a time, in order, off the main thread. */
+    private val serial = Dispatchers.IO.limitedParallelism(1)
+
     private var visibleScreens = 0
+    private var running = false // only touched on [serial]
 
     /* ------------------------------------------------------------------------------------ lifecycle */
 
@@ -100,20 +150,7 @@ class QuickSendController(
     @Synchronized
     fun acquire() {
         visibleScreens++
-        if (visibleScreens > 1) return
-        ensureChannel()
-        try {
-            val port = engine.startListening()
-            val identity = store.identity()
-            discovery.advertise(identity, Content.cleanDeviceName(deviceName()), port)
-            discovery.startBrowsing(identity.id, this)
-            mutableState.update { it.copy(listening = true, ownName = deviceName()) }
-        } catch (e: IOException) {
-            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
-        } catch (e: RuntimeException) {
-            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
-        }
-        refresh()
+        reconcile()
     }
 
     /** The matching screen went away: stop everything when the last one has. */
@@ -121,13 +158,52 @@ class QuickSendController(
     fun release() {
         if (visibleScreens == 0) return
         visibleScreens--
-        if (visibleScreens > 0) return
+        if (visibleScreens == 0) {
+            // Take effect at once, even before the background stop runs.
+            engine.pairingOpen = false
+            answerOffer(false)
+            answerPairing(false)
+        }
+        reconcile()
+    }
+
+    @Synchronized
+    private fun wanted(): Boolean = visibleScreens > 0
+
+    /** Brings the real state (listener up or down) in line with the number of visible screens. */
+    private fun reconcile() {
+        scope.launch(serial) {
+            val want = wanted()
+            if (want && !running) startNow() else if (!want && running) stopNow()
+        }
+    }
+
+    private fun startNow() {
+        try {
+            ensureChannel()
+            val port = engine.startListening()
+            val identity = store.identity()
+            discovery.advertise(identity, Content.cleanDeviceName(deviceName()), port)
+            discovery.startBrowsing(identity.id, this)
+            running = true
+            mutableState.update { it.copy(listening = true, ownName = deviceName()) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Bind failure, Keystore trouble, an NSD error: leave nothing half-started.
+            engine.stopListening()
+            discovery.stop()
+            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
+        }
+        refresh()
+    }
+
+    private fun stopNow() {
+        running = false
         engine.pairingOpen = false
         engine.stopListening()
         discovery.stop()
         synchronized(peers) { peers.clear() }
-        answerOffer(false)
-        answerPairing(false)
         mutableState.update { it.copy(listening = false, pairingOpen = false, nearby = emptyList()) }
         refresh()
     }
@@ -141,8 +217,17 @@ class QuickSendController(
         val clean = Content.cleanDeviceName(name)
         saveDeviceName(clean)
         mutableState.update { it.copy(ownName = clean) }
-        // The advertisement carries the name, so republish it.
-        if (mutableState.value.listening) engine.port?.let { discovery.advertise(store.identity(), clean, it) }
+        // The advertisement carries the name, so republish it (off the main thread: it reads the identity).
+        scope.launch(serial) {
+            val port = engine.port ?: return@launch
+            try {
+                if (running) discovery.advertise(store.identity(), clean, port)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The old name stays advertised until the next start.
+            }
+        }
     }
 
     /* ------------------------------------------------------------------------------------ actions */
@@ -153,37 +238,56 @@ class QuickSendController(
     }
 
     fun removePair(id: DeviceId) {
-        store.removePair(id)
-        refresh()
-    }
-
-    fun answerOffer(accept: Boolean) {
-        offerAnswer?.complete(accept)
-    }
-
-    fun answerPairing(codesMatch: Boolean) {
-        pairingAnswer?.complete(codesMatch)
-    }
-
-    /** Sends a PNG to the paired device [id], which must currently be visible on the network. */
-    fun send(id: DeviceId, png: ByteArray) {
         scope.launch(Dispatchers.IO) {
-            val peer = synchronized(peers) { peers[id] }
-            val pair = store.pairFor(id)
-            if (peer == null || pair == null) {
-                mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Unreachable))
-                return@launch
+            try {
+                store.removePair(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
             }
-            mutableState.update { it.copy(sending = SendProgress(pair.peerName, 0L, png.size.toLong())) }
-            val name = "$APP_SLUG-${System.currentTimeMillis()}.png"
-            val outcome = engine.send(peer.host, peer.port, pair, name, "image/png", png)
-            mutableState.update { it.copy(sending = null) }
-            mutableEvents.tryEmit(
-                when (outcome) {
-                    SendOutcome.Sent -> QuickSendEvent.Sent(pair.peerName)
-                    is SendOutcome.Failed -> QuickSendEvent.Problem(outcome.kind)
-                },
-            )
+            refresh()
+        }
+    }
+
+    fun answerOffer(accept: Boolean) = offerSlot.answer(accept)
+
+    fun answerPairing(codesMatch: Boolean) = pairingSlot.answer(codesMatch)
+
+    /**
+     * Sends a PNG to the paired device [id], which must currently be visible on the network. The "sending" state is
+     * set before this returns, so a second tap on the same button is ignored instead of starting a second transfer.
+     */
+    fun send(id: DeviceId, png: ByteArray) {
+        if (!sendGate.compareAndSet(false, true)) return
+        val name = mutableState.value.paired.firstOrNull { it.id == id }?.name.orEmpty()
+        mutableState.update { it.copy(sending = SendProgress(name, 0L, png.size.toLong())) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val peer = synchronized(peers) { peers[id] }
+                val pair = store.pairFor(id)
+                if (peer == null || pair == null) {
+                    mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Unreachable))
+                    return@launch
+                }
+                val fileName = "$APP_SLUG-${System.currentTimeMillis()}.png"
+                val outcome = engine.send(peer.host, peer.port, pair, fileName, "image/png", png)
+                mutableEvents.tryEmit(
+                    when (outcome) {
+                        SendOutcome.Sent -> QuickSendEvent.Sent(pair.peerName)
+                        is SendOutcome.Failed -> QuickSendEvent.Problem(outcome.kind)
+                    },
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.TooLarge))
+            } catch (e: Exception) {
+                mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
+            } finally {
+                mutableState.update { it.copy(sending = null) }
+                sendGate.set(false)
+            }
         }
     }
 
@@ -201,24 +305,25 @@ class QuickSendController(
 
     private fun refresh() {
         val snapshot = synchronized(peers) { LinkedHashMap(peers) }
-        val pairs = store.pairs()
+        val pairs = try {
+            store.pairs()
+        } catch (e: Exception) {
+            return // secrets unavailable for the moment: keep what the screen shows
+        }
         val pairedIds = pairs.map { it.peerId }.toSet()
         mutableState.update {
             it.copy(
-                paired = pairedList(snapshot),
+                paired = pairs.map { p -> PairedDevice(p.peerId, p.peerName, snapshot.containsKey(p.peerId)) },
                 nearby = snapshot.values.filter { p -> p.id !in pairedIds }.map { p -> NearbyDevice(p.id, p.name) },
             )
         }
     }
 
-    private fun pairedList(visible: Map<DeviceId, DiscoveredPeer>): List<PairedDevice> =
-        store.pairs().map { PairedDevice(it.peerId, it.peerName, visible.containsKey(it.peerId)) }
-
     /* ------------------------------------------------------------------------------------ engine prompts (worker threads) */
 
     override fun confirmOffer(offer: OfferInfo): Boolean {
-        val answer = CompletableFuture<Boolean>()
-        offerAnswer = answer
+        // Another offer is already on screen: decline this one rather than replace the prompt the user is reading.
+        val answer = offerSlot.begin() ?: return false
         mutableState.update { it.copy(offer = OfferPrompt(offer.peerName, offer.name, offer.size)) }
         notifyOffer(offer)
         return try {
@@ -231,15 +336,16 @@ class QuickSendController(
             Thread.currentThread().interrupt()
             false
         } finally {
-            offerAnswer = null
-            mutableState.update { it.copy(offer = null) }
-            NotificationManagerCompat.from(context).cancel(NOTIFICATION_OFFER)
+            if (offerSlot.finish(answer)) {
+                mutableState.update { it.copy(offer = null) }
+                NotificationManagerCompat.from(context).cancel(NOTIFICATION_OFFER)
+            }
         }
     }
 
     override fun confirmPairing(sas: String, peerName: String, peerId: DeviceId): Boolean {
-        val answer = CompletableFuture<Boolean>()
-        pairingAnswer = answer
+        // A pairing is already waiting for its user: refuse this one (the peer sees a rejection).
+        val answer = pairingSlot.begin() ?: return false
         mutableState.update { it.copy(pairing = PairingPrompt(groupCode(sas), peerName)) }
         return try {
             answer.get(PAIRING_WAIT_SECONDS, TimeUnit.SECONDS)
@@ -251,8 +357,7 @@ class QuickSendController(
             Thread.currentThread().interrupt()
             false
         } finally {
-            pairingAnswer = null
-            mutableState.update { it.copy(pairing = null) }
+            if (pairingSlot.finish(answer)) mutableState.update { it.copy(pairing = null) }
         }
     }
 
@@ -270,24 +375,33 @@ class QuickSendController(
     }
 
     override fun onReceived(file: ReceivedFile) {
-        // The bytes passed the library's checks but are still untrusted: the platform decoder is the gatekeeper.
-        val bitmap = BitmapFactory.decodeByteArray(file.data, 0, file.data.size)
-        if (bitmap == null) {
-            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.BadFile))
-            return
-        }
+        // The bytes passed the library's checks but are still untrusted: the platform decoder, with the size limits
+        // in CaptureStore, is the gatekeeper. Nothing here may throw: this runs on a connection thread.
         try {
-            val saved = captures.save(bitmap)
+            val saved = captures.importBytes(file.data)
             runBlocking { history.register(saved.id, saved.width, saved.height) }
-            val peerName = store.pairFor(file.peerId)?.peerName ?: context.getString(R.string.quicksend_unknown_device)
+            val peerName = peerNameOf(file)
             notifyReceived(saved.id, peerName)
             mutableEvents.tryEmit(QuickSendEvent.Received(saved.id, peerName))
+        } catch (e: ImageRejectedException) {
+            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.TooLarge))
+        } catch (e: ImageUnreadableException) {
+            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.BadFile))
         } catch (e: IOException) {
             mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
-        } finally {
-            bitmap.recycle()
+        } catch (e: OutOfMemoryError) {
+            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.TooLarge))
+        } catch (e: Exception) {
+            mutableEvents.tryEmit(QuickSendEvent.Problem(ProblemKind.Failed))
         }
     }
+
+    private fun peerNameOf(file: ReceivedFile): String =
+        try {
+            store.pairFor(file.peerId)?.peerName
+        } catch (e: Exception) {
+            null
+        } ?: context.getString(R.string.quicksend_unknown_device)
 
     /* ------------------------------------------------------------------------------------ notifications */
 
@@ -337,7 +451,7 @@ class QuickSendController(
         val open = PendingIntent.getActivity(
             context,
             11,
-            EditorActivity.intentFor(context, captureId).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            EditorActivity.intentFor(context, captureId).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         manager.notify(
