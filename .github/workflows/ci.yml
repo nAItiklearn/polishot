@@ -1,7 +1,17 @@
 name: CI
 
-# Root CI for the whole monorepo. Per-app workflows (desktop.yml, android.yml) add installers and
-# emulator tests; this one gives a single required check for every push and pull request to main.
+# Root CI for the whole monorepo (HANDOFF section 5.1, PLAN section 3). It runs on every push to main
+# and every pull request, with no path filters, so the final "All checks" job can be the single
+# required status check in branch protection.
+#
+#   workflows  actionlint + pinned-SHA and pnpm-script checks on .github/workflows
+#   js         lint, typecheck, Vitest (all packages), website build, Playwright (editor, desktop UI, website)
+#   lighthouse website Lighthouse budgets (advisory until the scores are known to be stable on runners)
+#   rust       Windows MSVC: cargo fmt, clippy -D warnings, cargo test --workspace
+#   rust-crates-linux  the platform-independent crates on Linux (fast second opinion)
+#   android    calls android.yml (Gradle build + unit tests)
+#
+# No secrets are used. Release signing lives in release.yml.
 
 on:
   push:
@@ -19,17 +29,52 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  NEXT_TELEMETRY_DISABLED: "1"
+  NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
+  workflows:
+    name: Workflows (actionlint, pins, scripts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Fails on any third-party action that is not pinned to a full SHA with a version comment, and on
+      # any `pnpm` command in a run step whose script does not exist in the package.json files.
+      - name: Check pins and pnpm scripts
+        run: node scripts/ci/check-workflows.mjs
+
+      # The runner image ships shellcheck, which actionlint uses for the shell in run steps. The archive
+      # is verified against the checksum published with the release; update both when bumping.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/actionlint.tar.gz"
+          curl -fsSL --retry 3 -o "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict -
+          mkdir -p "${RUNNER_TEMP}/actionlint"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/actionlint" actionlint
+
+      - name: actionlint
+        run: |
+          "${RUNNER_TEMP}/actionlint/actionlint" -color
+
   js:
-    name: JS (typecheck, unit, web build, e2e, Lighthouse)
+    name: JS (lint, typecheck, unit, build, e2e)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # Version comes from "packageManager" in the root package.json.
+      # The pnpm version comes from "packageManager" in the root package.json.
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -40,38 +85,93 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm -r --if-present typecheck
+      # Only apps/web defines "lint" today; --if-present picks up the others as they gain one.
+      - name: Lint
+        run: pnpm -r --if-present run lint
 
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Root script: Vitest in every package that has a "test" script (brand, redact, license, editor,
+      # desktop UI, website, Android editor host).
       - name: Unit tests
-        run: pnpm -r --if-present test
+        run: pnpm test
 
       - name: Build website
         run: pnpm --filter @polishot/web build
 
-      # One browser install serves both packages (both pin @playwright/test 1.65.0).
+      # All three Playwright packages pin @playwright/test 1.65.0 and use Chromium only, so one
+      # browser install serves them all.
       - name: Install Playwright Chromium
         run: pnpm --filter @polishot/web exec playwright install --with-deps chromium
 
+      # Retried once because these suites include timing budgets (first paint, frame rate) that can
+      # wobble on shared runners. A retried pass is reported as "flaky" in the log.
       - name: Editor e2e
-        run: pnpm --filter @polishot/editor test:e2e
+        run: pnpm --filter @polishot/editor test:e2e --retries=1
 
+      # The desktop UI in mock mode (Vite dev server, /?mock=1). The script is called "shots" but it
+      # runs every *.e2e.ts in apps/desktop/e2e: behaviour, flow and screenshots.
+      - name: Desktop UI e2e
+        run: pnpm --filter @polishot/desktop shots --retries=1
+
+      # Pages, navigation, a11y (axe), CSP, shaders, pricing/download, and the web editor flow
+      # (editor.e2e.ts). The screenshot-only "shots" project is left out. The config builds and starts
+      # the site itself (`next build && next start`).
       - name: Website e2e
-        run: pnpm --filter @polishot/web e2e
+        run: pnpm --filter @polishot/web e2e --project=desktop --project=mobile
 
-      # Uses the production build from "Build website"; budgets live in apps/web/lighthouserc.json.
-      - name: Lighthouse CI
-        run: pnpm --filter @polishot/web lhci
-
-      - name: Upload Playwright and Lighthouse reports
+      - name: Upload Playwright reports
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: js-reports
           path: |
             apps/web/test-results/
-            apps/web/.lighthouseci/
             packages/editor/test-results/artifacts/
+            apps/desktop/e2e/artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Budgets (95+ in every category) are in apps/web/lighthouserc.json. Shared runners are noisier than
+  # a laptop, so a miss here does not fail CI yet: read the report, and once a few runs agree, delete
+  # `continue-on-error` to make it blocking.
+  lighthouse:
+    name: Lighthouse (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build website
+        run: pnpm --filter @polishot/web build
+
+      # Starts `next start` on port 3108 and audits the pages listed in the config. Uses the Chrome that
+      # the runner image ships.
+      - name: Lighthouse CI
+        run: pnpm --filter @polishot/web lhci
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse-reports
+          path: |
+            apps/web/test-results/lhci/
+            apps/web/.lighthouseci/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -81,6 +181,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
@@ -100,12 +202,14 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --all --check
 
-      # tauri::generate_context! embeds build.frontendDist (apps/desktop/dist) at compile time,
-      # so the desktop frontend must be built before clippy and test compile the crate.
+      # tauri::generate_context! embeds build.frontendDist (apps/desktop/dist) at compile time, so the
+      # desktop frontend must exist before clippy and test compile the crate. One command per step:
+      # in a multi-line pwsh step only the last command's exit code fails the step.
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Build desktop frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @polishot/desktop build
+        run: pnpm --filter @polishot/desktop build
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -114,11 +218,13 @@ jobs:
         run: cargo test --workspace
 
   rust-crates-linux:
-    name: Rust crates (Linux, fast)
+    name: Rust crates (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
@@ -126,54 +232,34 @@ jobs:
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
+      # Pure-Rust crates with no Windows-only code: license verification, scroll stitching and GIF
+      # encoding, and the quick-send protocol (the Android side must interoperate with it).
       - name: cargo test (platform-independent crates)
         run: cargo test -p polishot-license -p polishot-media -p polishot-quicksend
 
-  # android.yml has no `on: workflow_call` yet, so the unit tests run inline here. Once it does,
-  # replace this job with:  android: { uses: ./.github/workflows/android.yml, secrets: inherit }
+  # Android build + unit tests live in android.yml (also used by release.yml's signing path).
+  # No `secrets: inherit`: CI needs no release key, so Gradle falls back to debug signing.
   android:
-    name: Android (unit tests)
+    name: Android
+    uses: ./.github/workflows/android.yml
+
+  # One stable name for branch protection: require "All checks" and nothing else.
+  # Lighthouse is advisory and deliberately not listed.
+  all-checks:
+    name: All checks
+    if: always()
+    needs: [workflows, js, rust, rust-crates-linux, android]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx3g
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # The Gradle build runs the editor-host Vite build itself, so it needs pnpm and node_modules.
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
-
-      - name: Install JS dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Accept Android SDK licences
-        run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-
-      - name: Gradle unit tests
-        working-directory: apps/android
+      - name: Require every job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          chmod +x ./gradlew
-          ./gradlew test --stacktrace
-
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android-unit-reports
-          path: |
-            apps/android/app/build/reports/tests/
-            apps/android/quicksend/build/reports/tests/
-          if-no-files-found: ignore
-          retention-days: 14
+          echo "Job results: ${RESULTS}"
+          for result in ${RESULTS}; do
+            if [ "${result}" != "success" ]; then
+              echo "::error::At least one required job did not succeed."
+              exit 1
+            fi
+          done

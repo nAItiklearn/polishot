@@ -31,3 +31,9 @@ demo/out/
 
 # Cargo workspace build output
 /target/
+
+# Generated test output / scratch copies
+apps/desktop/e2e/artifacts/
+apps/web/.lighthouseci/
+apps/web/test-results/
+apps/web-e2e-tmp/

@@ -242,7 +242,7 @@ test.describe('interaction quality bar', () => {
     await page.keyboard.press('r');
     await drag(page, [340, 520], [560, 600]);
     await page.keyboard.press('v');
-    const rect0 = (await annotations(page)).find((a) => a.type === 'rect')! as Extract<Annotation, { type: 'rect' }>;
+    const rect0 = (await annotations(page)).find((a) => a.type === 'rect')! as Extract<Annotation, { type: 'rect' | 'ellipse' }>;
     const edge = await screenOf(page, rect0.x + rect0.w * 0.25, rect0.y);
     await page.mouse.click(edge.x, edge.y);
     expect(await page.evaluate(() => window.__polishot!.editor.selectedId)).toBe(rect0.id);
@@ -250,7 +250,7 @@ test.describe('interaction quality bar', () => {
     await page.getByLabel('Padding').focus();
     const pad = (await getDoc(page)).padding;
     await page.keyboard.press('ArrowRight');
-    const rect1 = (await annotations(page)).find((a) => a.type === 'rect')! as Extract<Annotation, { type: 'rect' }>;
+    const rect1 = (await annotations(page)).find((a) => a.type === 'rect')! as Extract<Annotation, { type: 'rect' | 'ellipse' }>;
     expect(rect1.x).toBe(rect0.x);
     expect((await getDoc(page)).padding).toBeCloseTo(pad + 0.01, 4);
   });
@@ -381,7 +381,7 @@ test.describe('interaction quality bar', () => {
     await page.keyboard.press('r');
     await drag(page, [340, 520], [560, 600]);
     await page.keyboard.press('v');
-    const rectOf = async () => (await annotations(page)).find((a) => a.type === 'rect')! as Extract<Annotation, { type: 'rect' }>;
+    const rectOf = async () => (await annotations(page)).find((a) => a.type === 'rect')! as Extract<Annotation, { type: 'rect' | 'ellipse' }>;
     const r0 = await rectOf();
     const edge = await screenOf(page, r0.x + r0.w * 0.25, r0.y);
     await page.mouse.click(edge.x, edge.y);
@@ -416,7 +416,7 @@ test.describe('interaction quality bar', () => {
     await page.keyboard.press('Control+d');
     const rects = (await annotations(page)).filter((a) => a.type === 'rect');
     expect(rects).toHaveLength(2);
-    const copy = rects.find((a) => a.id !== before.id)! as Extract<Annotation, { type: 'rect' }>;
+    const copy = rects.find((a) => a.id !== before.id)! as Extract<Annotation, { type: 'rect' | 'ellipse' }>;
     expect(copy.x).toBeGreaterThan(before.x);
     expect(copy.y).toBeGreaterThan(before.y);
     expect(copy).toMatchObject({ w: before.w, h: before.h, color: before.color });
