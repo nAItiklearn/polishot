@@ -138,7 +138,10 @@ test.describe('changelog', () => {
 
     await page.goto('/changelog');
     await expect(page.getByRole('heading', { level: 2, name: '0.1.0' })).toBeVisible();
-    await expect(page.getByText('Unreleased', { exact: true })).toBeVisible();
+    // The label after the dash (a date, or Unreleased) is shown as written in CHANGELOG.md.
+    const label = /^## 0\.1\.0\s+[—-]\s+(.+)$/m.exec(changelog)?.[1]?.trim() ?? '';
+    expect(label).not.toBe('');
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
     await expect(page.locator('.prose-ps li')).toHaveCount(bullets);
     // Inline code and escaping: the changelog text appears as text.
     await expect(page.getByText('Quick send between a PC and a phone')).toBeVisible();
