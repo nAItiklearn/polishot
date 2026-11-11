@@ -104,18 +104,17 @@ jobs:
 
       # All three Playwright packages pin @playwright/test 1.65.0 and use Chromium only, so one
       # browser install serves them all.
-      # The system packages come from the Ubuntu mirrors, which are occasionally unreachable from
-      # runners. Retry them; if they stay down, the runner image already has Chromium's libraries.
+      # The system packages come from the Ubuntu mirrors, which are sometimes unreachable from runners
+      # (apt then hangs for a long time per file). Give them two minutes; GitHub's Ubuntu image already
+      # ships Google Chrome, so Chromium's libraries are present even when this is skipped.
       - name: Install Playwright Chromium
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           pnpm --filter @polishot/web exec playwright install chromium
-          for attempt in 1 2 3; do
-            if pnpm --filter @polishot/web exec playwright install-deps chromium; then exit 0; fi
-            echo "install-deps attempt ${attempt} failed; retrying in 20 s."
-            sleep 20
-          done
-          echo "::warning::Playwright system packages could not be installed; using the runner image's libraries."
+          if ! timeout 120 pnpm --filter @polishot/web exec playwright install-deps chromium; then
+            echo "::warning::Playwright system packages were not installed (Ubuntu mirrors unreachable); using the runner image's libraries."
+          fi
 
       # Retried once because these suites include timing budgets (first paint, frame rate) that can
       # wobble on shared runners. A retried pass is reported as "flaky" in the log.
