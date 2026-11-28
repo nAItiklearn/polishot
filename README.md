@@ -1,6 +1,6 @@
 # Polishot
 
-**Polished screenshots, private by default.** Take a screenshot, and Polishot frames it, hides anything sensitive, and gets it ready to share in about two seconds. It all happens on your own device.
+**Polished screenshots, private by default.** Take a screenshot and Polishot frames it. It also hides anything sensitive, and gets it ready to share in about two seconds.EVERYTHING OFFLINE!! no signup thingy.
 
 Windows and Android. Try it at **[polishot.cam](https://polishot.cam)**.
 
